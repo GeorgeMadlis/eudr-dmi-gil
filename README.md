@@ -1,2 +1,2 @@
 # eudr-dmi-gil
-Authoritative implementation of the EUDR DMI-GIL: evidence contracts, deterministic pipelines, and audit-ready artefacts.
+This repository is the authoritative source of code, evidence contracts, schemas, and deterministic generation pipelines for the EUDR DMI-GIL Digital Twin.
