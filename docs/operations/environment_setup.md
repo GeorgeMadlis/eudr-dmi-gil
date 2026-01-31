@@ -45,6 +45,8 @@ Install geospatial method dependencies (optional; may require system libraries):
 pip install -r requirements-methods.txt
 ```
 
+This includes the Python MinIO client (`minio`) used by AOI/report upload pipelines.
+
 ## Quick sanity checks
 
 Run the shim unit test (no external services):

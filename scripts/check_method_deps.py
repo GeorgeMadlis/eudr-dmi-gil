@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 
-REQUIRED = {"rasterio", "shapely", "pyproj", "numpy"}
+REQUIRED = {"rasterio", "shapely", "pyproj", "numpy", "minio"}
 
 
 _REQ_NAME_RE = re.compile(r"^([A-Za-z0-9_.-]+)")

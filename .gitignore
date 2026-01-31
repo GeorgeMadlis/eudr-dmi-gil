@@ -195,6 +195,8 @@ cython_debug/
 data_db/*.duckdb
 data_db/*.duckdb.wal
 data_db/*.duckdb.tmp
+data_db/*.wal
+data_db/*with_families*.csv
 
 # PyPI configuration file
 .pypirc
