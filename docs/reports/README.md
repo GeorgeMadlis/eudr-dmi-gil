@@ -39,3 +39,27 @@ CLI usage:
 
 - Provide refs directly (repeatable): `--policy-mapping-ref "policy-spine:eudr/article-3"`
 - Or load newline-separated refs from files (repeatable): `--policy-mapping-ref-file policy_refs.txt`
+
+## Publishing to the Digital Twin repo (human-in-the-loop)
+
+This repository (`eudr-dmi-gil`) is responsible for **authoritative generation** of deterministic evidence bundles
+and portable site bundles.
+
+The Digital Twin portal repository is responsible for **publishing/hosting** those artifacts.
+
+Recommended workflow:
+
+1) Generate AOI evidence bundles (JSON/HTML/metrics.csv/manifest.json) under the evidence root.
+2) Export a portable site bundle folder + deterministic zip (see `scripts/export_reports_site_bundle.py`).
+3) Copy the portable folder into a sibling checkout of the portal repo and review the diff.
+
+Helper script (no auto-push, no credentials assumed):
+
+- `scripts/publish_reports_to_digital_twin.sh`
+
+By default it copies:
+
+- from: `docs/site_bundle_reports/`
+- to: `../eudr-dmi-gil-digital-twin/site/aoi_reports/`
+
+The final commit/push happens from the portal repository after human review.
