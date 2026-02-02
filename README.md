@@ -10,6 +10,8 @@ EUDR-DMI-GIL is an authoritative, open implementation of a geospatial data manag
 - DMI = Data Management Infrastructure
 - GIL = Geospatial Intelligence Layer
 - DAO = Decentralized Autonomous Organization (procedural, non-blockchain governance model in this project)
+- DT = Digital Twin
+- DTE = EUDR DAO Digital Twin Engineer
 
 ## Definitions
 
@@ -87,9 +89,14 @@ This repository is the authoritative implementation that executes the governance
 - [docs/reports/runbook_generate_aoi_report.md](docs/reports/runbook_generate_aoi_report.md)
 - [scripts/migrate_from_private_eudr_dmi/README.md](scripts/migrate_from_private_eudr_dmi/README.md)
 
-## Inspection & DAO Entry Point
+## Governance, Inspection & DAO Entry Points
 
-- [docs/INSPECTION_INDEX.md](docs/INSPECTION_INDEX.md)
+This repository is the authoritative implementation.
+Stakeholder Q/A, proposals, and acceptance criteria are governed by the DTE instructions.
+Developers should use these links to interpret DAO proposals correctly.
+
+- Digital Twin DTE Instructions (Canonical): https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin/blob/main/docs/governance/dte_instructions.md
+- Digital Twin Inspection Index: https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin/blob/main/docs/INSPECTION_INDEX.md
 
 ## Relationship to the portal
 

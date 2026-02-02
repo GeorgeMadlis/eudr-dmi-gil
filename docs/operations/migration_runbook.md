@@ -8,6 +8,8 @@ This runbook describes how to adopt code and documentation from the private `eud
 
 This document is intentionally conservative. It defines **adoption boundaries** and **do-not-copy rules** to reduce the risk of publishing secrets, runtime data, or generated artefacts.
 
+Operational changes that affect reproducibility or determinism should reference DAO proposals produced via the DTE.
+
 ## Adoption Boundaries (Copy + Own)
 
 Adoption into this repository is **copy + own**:
@@ -61,4 +63,6 @@ The migration tool:
 
 - [README.md](../../README.md)
 - [docs/governance/roles_and_workflow.md](../governance/roles_and_workflow.md)
+- Digital Twin DTE Instructions (Canonical): https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin/blob/main/docs/governance/dte_instructions.md
+- Digital Twin Inspection Index: https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin/blob/main/docs/INSPECTION_INDEX.md
 - https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin

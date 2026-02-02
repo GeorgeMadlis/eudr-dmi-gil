@@ -4,6 +4,14 @@
 
 This repository is the authoritative implementation for EUDR-DMI-GIL. The Digital Twin repository is the public, non-authoritative portal for inspection and governance.
 
+## Governance and DAO Context
+
+DAO proposals are produced via the DTE workflow and must be grounded in the Digital Twin inspection surface.
+
+- Digital Twin DTE Instructions (Canonical): https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin/blob/main/docs/governance/dte_instructions.md
+
+All implementation changes should be traceable back to a DAO proposal grounded via the DTE workflow.
+
 ## Architecture
 
 - [docs/architecture/decision_records/0001-report-pipeline-architecture.md](architecture/decision_records/0001-report-pipeline-architecture.md)

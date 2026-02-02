@@ -23,6 +23,8 @@ Publishing happens in the portal repository.
 
 Client AOI outputs are private by default and must remain in operator-controlled storage. Any export to the Digital Twin is an **example/public export only**.
 
+AOI report structure and acceptance criteria are inspected via the Digital Twin and governed by DTE-driven proposals.
+
 ## Prereqs
 
 - Python 3.11
@@ -115,4 +117,6 @@ When the changes look correct, commit and push from the portal repository.
 
 - [README.md](../../README.md)
 - [docs/governance/roles_and_workflow.md](../governance/roles_and_workflow.md)
+- Digital Twin DTE Instructions (Canonical): https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin/blob/main/docs/governance/dte_instructions.md
+- Digital Twin Inspection Index: https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin/blob/main/docs/INSPECTION_INDEX.md
 - https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin

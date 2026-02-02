@@ -13,8 +13,12 @@ Some code paths referenced by the DT are preserved as *compatibility shims* in
 this repository snapshot. See [docs/architecture/dependency_register.md](../architecture/dependency_register.md)
 for “used by” path preservation.
 
+Changes to dependencies or evidence sources may originate from stakeholder DAO proposals reviewed via the DTE.
+
 ## See also
 
 - [README.md](../../README.md)
 - [docs/governance/roles_and_workflow.md](../governance/roles_and_workflow.md)
+- Digital Twin DTE Instructions (Canonical): https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin/blob/main/docs/governance/dte_instructions.md
+- Digital Twin Inspection Index: https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin/blob/main/docs/INSPECTION_INDEX.md
 - https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin

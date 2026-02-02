@@ -6,6 +6,8 @@ This repository is the authoritative implementation for report generation. The D
 
 This folder documents the report pipeline architecture for EUDR-DMI-GIL.
 
+AOI report structure and acceptance criteria are inspected via the Digital Twin and governed by DTE-driven proposals.
+
 ## Key conventions
 
 - **Authoritative generation happens here** (this repo).
@@ -74,4 +76,6 @@ The final commit/push happens from the portal repository after human review.
 
 - [README.md](../../README.md)
 - [docs/governance/roles_and_workflow.md](../governance/roles_and_workflow.md)
+- Digital Twin DTE Instructions (Canonical): https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin/blob/main/docs/governance/dte_instructions.md
+- Digital Twin Inspection Index: https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin/blob/main/docs/INSPECTION_INDEX.md
 - https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin

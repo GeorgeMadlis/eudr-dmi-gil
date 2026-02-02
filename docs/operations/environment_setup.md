@@ -74,8 +74,12 @@ pytest -q
 Notes:
 - This repo can be used without installing `requirements-methods.txt` unless you work on geospatial methods.
 
+Operational changes that affect reproducibility or determinism should reference DAO proposals produced via the DTE.
+
 ## See also
 
 - [README.md](../../README.md)
 - [docs/governance/roles_and_workflow.md](../governance/roles_and_workflow.md)
+- Digital Twin DTE Instructions (Canonical): https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin/blob/main/docs/governance/dte_instructions.md
+- Digital Twin Inspection Index: https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin/blob/main/docs/INSPECTION_INDEX.md
 - https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin
