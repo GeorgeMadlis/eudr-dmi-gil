@@ -1,5 +1,9 @@
 # Adoption Log
 
+## Role in the ecosystem
+
+This repository is the authoritative implementation for EUDR-DMI-GIL. The Digital Twin repository is the public, non-authoritative portal for inspection and governance.
+
 This log records provenance for any material adopted into this repository from external sources (including the private `eudr_dmi` repository).
 
 Principles:
@@ -28,3 +32,9 @@ Use one entry per adoption pull request.
 - Transformations performed (normalization, renames, deletions):
 - Review notes (what was checked, by whom):
 - Reproducibility notes (how to re-run migration and verify manifest):
+
+## See also
+
+- [README.md](README.md)
+- [docs/governance/roles_and_workflow.md](docs/governance/roles_and_workflow.md)
+- https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin

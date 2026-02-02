@@ -2,6 +2,10 @@
 
 Date: 2026-01-31
 
+## Role in the ecosystem
+
+This repository is the authoritative implementation for report generation and deterministic outputs. The Digital Twin repository is the public, non-authoritative portal for inspection and governance.
+
 ## Status
 
 Accepted
@@ -81,8 +85,16 @@ A report run is considered deterministic when:
 
 The portal repo must not be treated as the place where authoritative generation happens.
 
+Client AOI outputs are private by default; any export to the Digital Twin is an **example/public export only**.
+
 ## Consequences
 
 - Report pipelines can be verified locally by re-running and comparing checksums.
 - Bundles become portable units for review, governance, and publication.
 - Introducing new report types requires schema + manifest updates, preserving old versions.
+
+## See also
+
+- [README.md](../../../README.md)
+- [docs/governance/roles_and_workflow.md](../../governance/roles_and_workflow.md)
+- https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin

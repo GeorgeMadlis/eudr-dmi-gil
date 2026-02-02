@@ -1,5 +1,9 @@
 # MinIO (Local) Setup
 
+## Role in the ecosystem
+
+This repository is the authoritative implementation for runtime storage and pipelines. The Digital Twin repository is the public, non-authoritative portal for inspection and governance.
+
 This repository uses MinIO as an S3-compatible object store for **runtime artifacts** (e.g., generated reports).
 
 ## Local-only data rule
@@ -98,3 +102,9 @@ python -m task3_eudr_reports.run_eudr_report_to_minio --check-minio-env
 ```
 
 Note: the full report generator/upload pipeline is intentionally not included in this snapshot; the module currently provides a stable DT path plus a MinIO env-var preflight.
+
+## See also
+
+- [README.md](../../README.md)
+- [docs/governance/roles_and_workflow.md](../governance/roles_and_workflow.md)
+- https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin

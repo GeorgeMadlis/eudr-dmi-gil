@@ -1,8 +1,16 @@
 # Dependency Register (DT contract)
 
+## Role in the ecosystem
+
+This repository is the authoritative implementation for dependency tracking. The Digital Twin repository is the public, non-authoritative portal for inspection and governance.
+
 This register exists to document the dependency contract referenced by the
 Digital Twin (DT) Dependencies page, including “Used by” paths that must remain
 stable even when underlying implementation moves.
+
+Implementation references (authoritative):
+- [docs/dependencies/README.md](../dependencies/README.md)
+- [docs/dependencies/sources.md](../dependencies/sources.md)
 
 ## Public path preservation (“Used by”)
 
@@ -36,3 +44,9 @@ Authoritative dependency identifiers and server audit paths are recorded in:
 
 - [docs/dependencies/sources.md](../dependencies/sources.md)
 - [docs/dependencies/sources.json](../dependencies/sources.json)
+
+## See also
+
+- [README.md](../../README.md)
+- [docs/governance/roles_and_workflow.md](../governance/roles_and_workflow.md)
+- https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin

@@ -1,5 +1,9 @@
 # Runbook: generate a browsable AOI report site (local + Digital Twin publish)
 
+## Role in the ecosystem
+
+This repository is the authoritative implementation for AOI report generation. The Digital Twin repository is the public, non-authoritative portal for inspection and governance.
+
 This runbook provides a single end-to-end flow:
 
 1) Generate an AOI evidence bundle (JSON + HTML + metrics.csv + manifest)
@@ -16,6 +20,8 @@ Grounding (per upstream `eudr_dmi` conventions):
 
 This repository is the authoritative implementation for generation.
 Publishing happens in the portal repository.
+
+Client AOI outputs are private by default and must remain in operator-controlled storage. Any export to the Digital Twin is an **example/public export only**.
 
 ## Prereqs
 
@@ -104,3 +110,9 @@ When the changes look correct, commit and push from the portal repository.
 - They can be placeholders.
 - They are intended for DAO review/traceability.
 - They are not compliance claims.
+
+## See also
+
+- [README.md](../../README.md)
+- [docs/governance/roles_and_workflow.md](../governance/roles_and_workflow.md)
+- https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin

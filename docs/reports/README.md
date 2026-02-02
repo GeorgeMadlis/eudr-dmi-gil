@@ -1,5 +1,9 @@
 # Reports
 
+## Role in the ecosystem
+
+This repository is the authoritative implementation for report generation. The Digital Twin repository is the public, non-authoritative portal for inspection and governance.
+
 This folder documents the report pipeline architecture for EUDR-DMI-GIL.
 
 ## Key conventions
@@ -7,6 +11,7 @@ This folder documents the report pipeline architecture for EUDR-DMI-GIL.
 - **Authoritative generation happens here** (this repo).
 - **Publication/hosting happens elsewhere** in the Digital Twin portal repository:
   - https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin
+- **Client AOI outputs are private by default** and remain in operator-controlled storage (evidence root/MinIO). Any export to the Digital Twin is an **example/public export only**.
 
 ## Evidence bundles
 
@@ -64,3 +69,9 @@ By default it copies:
 - to: `../eudr-dmi-gil-digital-twin/site/aoi_reports/`
 
 The final commit/push happens from the portal repository after human review.
+
+## See also
+
+- [README.md](../../README.md)
+- [docs/governance/roles_and_workflow.md](../governance/roles_and_workflow.md)
+- https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin

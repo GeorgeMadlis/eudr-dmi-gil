@@ -1,7 +1,15 @@
 # Dependency Sources Registry
 
+## Role in the ecosystem
+
+This repository is the authoritative implementation for dependency provenance. The Digital Twin repository is the public, non-authoritative portal for inspection and governance.
+
 Purpose: record the upstream dependency identifiers, URLs, expected content
 types, and server audit paths referenced by the Digital Twin Dependencies page.
+
+Implementation references (authoritative):
+- [docs/dependencies/README.md](README.md)
+- [docs/architecture/dependency_register.md](../architecture/dependency_register.md)
 
 Server audit root (convention): `/Users/server/audit/eudr_dmi`
 
@@ -13,3 +21,9 @@ Server audit root (convention): `/Users/server/audit/eudr_dmi`
 Notes:
 - Do not paste upstream content into this repository.
 - Store any mirrored/verified artifacts under the corresponding server audit path.
+
+## See also
+
+- [README.md](../../README.md)
+- [docs/governance/roles_and_workflow.md](../governance/roles_and_workflow.md)
+- https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin

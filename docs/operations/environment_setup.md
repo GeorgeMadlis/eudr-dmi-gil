@@ -1,5 +1,9 @@
 # Environment setup (Python)
 
+## Role in the ecosystem
+
+This repository is the authoritative implementation for environment and runtime setup. The Digital Twin repository is the public, non-authoritative portal for inspection and governance.
+
 ## Python version
 
 - Required for the current packaging contract: Python 3.11
@@ -69,3 +73,9 @@ pytest -q
 
 Notes:
 - This repo can be used without installing `requirements-methods.txt` unless you work on geospatial methods.
+
+## See also
+
+- [README.md](../../README.md)
+- [docs/governance/roles_and_workflow.md](../governance/roles_and_workflow.md)
+- https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin
