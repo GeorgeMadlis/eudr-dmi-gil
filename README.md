@@ -87,6 +87,10 @@ This repository is the authoritative implementation that executes the governance
 - [docs/reports/runbook_generate_aoi_report.md](docs/reports/runbook_generate_aoi_report.md)
 - [scripts/migrate_from_private_eudr_dmi/README.md](scripts/migrate_from_private_eudr_dmi/README.md)
 
+## Inspection & DAO Entry Point
+
+- [docs/INSPECTION_INDEX.md](docs/INSPECTION_INDEX.md)
+
 ## Relationship to the portal
 
 Inspectable HTML views and procedural-DAO governance interfaces are published separately in the eudr-dmi-gil-digital-twin repository.
