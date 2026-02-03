@@ -149,8 +149,8 @@ if [[ "$PUBLISH_DT" == "1" ]]; then
   fi
 
   echo "\nPublishing to DT repo (RUN_ID=$STAGED_RUN_ID): $DT_REPO"
-  RUN_ID="$STAGED_RUN_ID" STAGING_DIR="$OUTPUT_ROOT" git -C "$DT_REPO" \
-    scripts/publish_aoi_run_from_staging.sh
+  (cd "$DT_REPO" && RUN_ID="$STAGED_RUN_ID" STAGING_DIR="$OUTPUT_ROOT" \
+    scripts/publish_aoi_run_from_staging.sh)
 else
   echo "\nDT publish skipped (--no-publish-dt)."
 fi
