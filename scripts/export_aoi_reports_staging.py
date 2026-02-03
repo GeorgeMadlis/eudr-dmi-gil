@@ -8,8 +8,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-EVIDENCE_ROOT_DEFAULT = Path("/Users/server/projects/eudr-dmi-gil/audit/evidence")
-OUTPUT_ROOT = Path("/Users/server/projects/eudr-dmi-gil/out/site_bundle/aoi_reports")
+REPO_ROOT = Path(__file__).resolve().parent.parent
+EVIDENCE_ROOT_DEFAULT = REPO_ROOT / "audit" / "evidence"
+OUTPUT_ROOT = REPO_ROOT / "out" / "site_bundle" / "aoi_reports"
 
 
 @dataclass(frozen=True)

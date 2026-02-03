@@ -40,6 +40,10 @@ jobs:
         shell: bash
         run: pytest -q
 
+      - name: AOI report example (smoke)
+        shell: bash
+        run: scripts/run_example_report.sh
+
       - name: Shellcheck bash scripts
         shell: bash
         run: |

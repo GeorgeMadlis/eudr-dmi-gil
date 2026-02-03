@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-AOI_PATH="/Users/server/projects/eudr-dmi-gil/aoi_json_examples/estonia_testland1.geojson"
+AOI_PATH="${REPO_ROOT}/aoi_json_examples/estonia_testland1.geojson"
 EVIDENCE_ROOT="${REPO_ROOT}/out/example_evidence"
 OUTPUT_ROOT="${REPO_ROOT}/out/site_bundle/aoi_reports"
 RUN_ID="estonia_testland1_example"
