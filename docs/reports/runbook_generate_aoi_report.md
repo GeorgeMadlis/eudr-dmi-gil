@@ -67,18 +67,33 @@ The bundle includes:
 
 ### Test run: Estonia example AOI (deterministic smoke)
 
-Use the built-in script to generate a sample AOI bundle from the Estonia example GeoJSON and export the DT-ready bundle:
+This repo’s report entrypoint is:
+
+- `python -m eudr_dmi_gil.reports.cli`
+
+Deterministic example command (no timestamps in filenames):
 
 ```sh
-scripts/test_run_estonia_testland1.sh
+python -m eudr_dmi_gil.reports.cli \
+  --aoi-id estonia_testland1 \
+  --aoi-geojson /Users/server/projects/eudr-dmi-gil/aoi_json_examples/estonia_testland1.geojson \
+  --bundle-id estonia_testland1_example \
+  --out-format both \
+  --metric area_ha=12.34:ha:example:deterministic \
+  --metric forest_cover_fraction=0.56:fraction:example:deterministic
+```
+
+Wrapper script (runs the command, exports DT-staging output, validates JSON, and prints absolute paths):
+
+```sh
+scripts/run_example_report.sh
 ```
 
 This prints:
 
 - input file path
-- bundle output directory
-- DT staging output directory
-- a short inventory of generated JSON/HTML artifacts
+- stable output directory: `out/site_bundle/aoi_reports/`
+- absolute paths for `index.html`, `report.html`, `aoi_report.json` (and `summary.json` if present)
 
 ## Operational Runbook (current publish workflow)
 

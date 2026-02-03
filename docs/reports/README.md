@@ -30,6 +30,10 @@ Local generation outputs:
 - Evidence bundles: `audit/evidence/<YYYY-MM-DD>/<bundle_id>/`
 - DT-staging AOI reports: `out/site_bundle/aoi_reports/`
 
+Deterministic example runner:
+
+- `scripts/run_example_report.sh`
+
 ## Where to look
 
 - ADR: see the decision record in `docs/architecture/decision_records/` about report pipeline architecture.
