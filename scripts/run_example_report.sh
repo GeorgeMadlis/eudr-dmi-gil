@@ -121,6 +121,8 @@ except Exception as exc:  # noqa: BLE001
             "metrics",
             "evidence_artifacts",
           "evidence_registry",
+          "acceptance_criteria",
+          "regulatory_traceability",
             "policy_mapping_refs",
         }
         missing = sorted(required - set(obj.keys()))

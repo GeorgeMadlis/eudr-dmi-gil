@@ -58,6 +58,30 @@ def _golden_aoi_report_v1() -> dict:
                 }
             ]
         },
+        "acceptance_criteria": [
+            {
+                "criteria_id": "aoi_geometry_present",
+                "description": "AOI geometry is present and referenced in inputs.",
+                "evidence_classes": ["aoi_geometry"],
+                "decision_type": "presence",
+            }
+        ],
+        "results": [
+            {
+                "result_id": "result-001",
+                "criteria_ids": ["aoi_geometry_present"],
+                "status": "pass",
+            }
+        ],
+        "regulatory_traceability": [
+            {
+                "regulation": "EUDR",
+                "article_ref": "article-3",
+                "evidence_class": "aoi_geometry",
+                "acceptance_criteria": "aoi_geometry_present",
+                "result_ref": "result-001",
+            }
+        ],
         "policy_mapping_refs": [
             "policy-spine:eudr/article-3",
             "policy-spine:eudr/article-9",
@@ -90,6 +114,75 @@ def test_schema_rejects_missing_report_metadata_block() -> None:
 def test_schema_rejects_invalid_report_type_enum() -> None:
     bad = _golden_aoi_report_v1()
     bad["report_metadata"]["report_type"] = "internal"
+    with pytest.raises(ValidationError):
+        validate_aoi_report_v1(bad)
+
+
+def test_schema_rejects_missing_acceptance_criteria() -> None:
+    bad = _golden_aoi_report_v1()
+    bad.pop("acceptance_criteria")
+    with pytest.raises(ValidationError):
+        validate_aoi_report_v1(bad)
+
+
+def test_schema_accepts_criteria_without_results() -> None:
+    ok = _golden_aoi_report_v1()
+    ok["results"] = []
+    ok["regulatory_traceability"] = []
+    validate_aoi_report_v1(ok)
+
+
+def test_schema_rejects_result_without_criteria_refs() -> None:
+    bad = _golden_aoi_report_v1()
+    bad["results"] = [{"result_id": "result-005", "criteria_ids": []}]
+    bad["regulatory_traceability"] = [
+        {
+            "regulation": "EUDR",
+            "article_ref": "article-3",
+            "evidence_class": "aoi_geometry",
+            "acceptance_criteria": "aoi_geometry_present",
+            "result_ref": "result-005",
+        }
+    ]
+    with pytest.raises(ValidationError):
+        validate_aoi_report_v1(bad)
+
+
+def test_schema_accepts_result_with_criteria_refs() -> None:
+    ok = _golden_aoi_report_v1()
+    ok["results"] = [{"result_id": "result-002", "criteria_ids": ["aoi_geometry_present"]}]
+    ok["regulatory_traceability"] = [
+        {
+            "regulation": "EUDR",
+            "article_ref": "article-3",
+            "evidence_class": "aoi_geometry",
+            "acceptance_criteria": "aoi_geometry_present",
+            "result_ref": "result-002",
+        }
+    ]
+    validate_aoi_report_v1(ok)
+
+
+def test_schema_rejects_orphaned_results_without_traceability() -> None:
+    bad = _golden_aoi_report_v1()
+    bad["results"] = [{"result_id": "result-003", "criteria_ids": ["aoi_geometry_present"]}]
+    bad["regulatory_traceability"] = []
+    with pytest.raises(ValidationError):
+        validate_aoi_report_v1(bad)
+
+
+def test_schema_rejects_traceability_unknown_references() -> None:
+    bad = _golden_aoi_report_v1()
+    bad["results"] = [{"result_id": "result-004", "criteria_ids": ["aoi_geometry_present"]}]
+    bad["regulatory_traceability"] = [
+        {
+            "regulation": "EUDR",
+            "article_ref": "article-3",
+            "evidence_class": "unknown_class",
+            "acceptance_criteria": "aoi_geometry_present",
+            "result_ref": "result-004",
+        }
+    ]
     with pytest.raises(ValidationError):
         validate_aoi_report_v1(bad)
 

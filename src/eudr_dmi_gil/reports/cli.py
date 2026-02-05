@@ -278,6 +278,30 @@ def main(argv: list[str] | None = None) -> int:
                 }
             ]
         },
+        "acceptance_criteria": [
+            {
+                "criteria_id": "aoi_geometry_present",
+                "description": "AOI geometry is present and referenced in inputs.",
+                "evidence_classes": ["aoi_geometry"],
+                "decision_type": "presence",
+            }
+        ],
+        "results": [
+            {
+                "result_id": "result-001",
+                "criteria_ids": ["aoi_geometry_present"],
+                "status": "placeholder",
+            }
+        ],
+        "regulatory_traceability": [
+            {
+                "regulation": "EUDR",
+                "article_ref": "article-3",
+                "evidence_class": "aoi_geometry",
+                "acceptance_criteria": "aoi_geometry_present",
+                "result_ref": "result-001",
+            }
+        ],
         "policy_mapping_refs": policy_mapping_refs,
         "extensions": {
             "metrics_rows_v1": [
