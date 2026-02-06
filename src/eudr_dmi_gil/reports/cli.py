@@ -15,6 +15,7 @@ from .bundle import bundle_dir as compute_bundle_dir
 from .bundle import compute_sha256
 from .bundle import resolve_evidence_root, write_manifest
 from .determinism import canonical_json_bytes, sha256_bytes, write_bytes
+from eudr_dmi_gil.deps.hansen_acquire import build_entries_from_provenance
 from .policy_refs import collect_policy_mapping_refs
 from .validate import validate_aoi_report_v1
 
@@ -37,6 +38,21 @@ def _sanitize_id(value: str) -> str:
 def _rel_href(from_path: Path, to_path: Path) -> str:
     rel = os.path.relpath(to_path, start=from_path.parent)
     return Path(rel).as_posix()
+
+
+def _content_type_for_path(path: Path) -> str | None:
+    suffix = path.suffix.lower()
+    if suffix == ".json":
+        return "application/json"
+    if suffix == ".geojson":
+        return "application/geo+json"
+    if suffix == ".csv":
+        return "text/csv"
+    if suffix == ".html":
+        return "text/html"
+    if suffix == ".wkt":
+        return "text/plain"
+    return None
 
 
 def _render_html_summary(report: dict[str, Any], *, html_path: Path, artifact_paths: list[Path]) -> str:
@@ -80,6 +96,47 @@ def _render_html_summary(report: dict[str, Any], *, html_path: Path, artifact_pa
             f'<p><a href="{_rel_href(html_path, report_json_path)}">Open report JSON</a></p>'
         )
 
+    dependencies = report.get("external_dependencies") or []
+    bundle_root = html_path.parents[2]
+    dep_rows = []
+    dep_tiles_rows = []
+    dep_manifest_href = ""
+    for dep in dependencies:
+        if not isinstance(dep, dict):
+            continue
+        dep_rows.append(
+            row(
+                dep.get("dependency_id", "(unknown)"),
+                " ".join(
+                    part
+                    for part in [
+                        f"dataset_version={dep.get('dataset_version', '')}",
+                        f"tile_source={dep.get('tile_source', '')}",
+                    ]
+                    if part.strip("=")
+                ),
+            )
+        )
+        tiles_manifest = dep.get("tiles_manifest", {})
+        if isinstance(tiles_manifest, dict):
+            relpath = tiles_manifest.get("relpath")
+            if isinstance(relpath, str) and relpath:
+                abs_path = bundle_root / relpath
+                dep_manifest_href = (
+                    f'<a href="{_rel_href(html_path, abs_path)}">{relpath}</a>'
+                )
+
+        tiles_used = dep.get("tiles_used") or []
+        for tile in tiles_used:
+            if not isinstance(tile, dict):
+                continue
+            dep_tiles_rows.append(
+                f"<tr><td>{tile.get('tile_id')}</td><td>{tile.get('layer')}</td><td><code>{tile.get('sha256')}</code></td></tr>"
+            )
+
+    dep_table = "\n".join(dep_rows) if dep_rows else row("(none)", "")
+    dep_tiles_table = "\n".join(dep_tiles_rows) if dep_tiles_rows else "<tr><td colspan=\"3\">(none)</td></tr>"
+
     return f"""<!doctype html>
 <html lang=\"en\">
 <head>
@@ -93,6 +150,7 @@ def _render_html_summary(report: dict[str, Any], *, html_path: Path, artifact_pa
     th {{ background: #f6f6f6; text-align: left; width: 240px; }}
     h2 {{ margin-top: 28px; }}
     code {{ background: #f6f6f6; padding: 1px 4px; border-radius: 4px; }}
+        .muted {{ color: #666; }}
   </style>
 </head>
 <body>
@@ -126,6 +184,17 @@ def _render_html_summary(report: dict[str, Any], *, html_path: Path, artifact_pa
   <ul>
     {policy_html or '<li>(none)</li>'}
   </ul>
+
+    <h2>External dependencies</h2>
+    <table>
+        {dep_table}
+    </table>
+    <p>Tiles manifest: {dep_manifest_href or '(none)'}</p>
+    <p class="muted">Raw TIFFs are stored under repo/data/external and are not part of the published bundle.</p>
+    <table>
+        <tr><th>tile_id</th><th>layer</th><th>sha256</th></tr>
+        {dep_tiles_table}
+    </table>
 </body>
 </html>
 """
@@ -270,6 +339,7 @@ def main(argv: list[str] | None = None) -> int:
     hansen_computed_outputs_block: dict[str, Any] | None = None
     hansen_acceptance_criteria_block: dict[str, Any] | None = None
     hansen_result_block: dict[str, Any] | None = None
+    hansen_external_dependencies: list[dict[str, Any]] | None = None
     if args.enable_hansen_post_2020_loss:
         from eudr_dmi_gil.analysis.forest_loss_post_2020 import run_forest_loss_post_2020
         from eudr_dmi_gil.tasks.forest_loss_post_2020 import load_hansen_config
@@ -390,6 +460,41 @@ def main(argv: list[str] | None = None) -> int:
             "status": "computed",
         }
 
+        entries = hansen_config.tile_entries or build_entries_from_provenance(
+            hansen_analysis.raw.tile_provenance,
+            tile_dir=hansen_config.tile_dir,
+        )
+        tiles_used = sorted(
+            [
+                {
+                    "tile_id": e.tile_id,
+                    "layer": e.layer,
+                    "local_path": e.local_path,
+                    "sha256": e.sha256,
+                    "size_bytes": e.size_bytes,
+                    "source_url": e.source_url,
+                }
+                for e in entries
+            ],
+            key=lambda item: (item.get("tile_id", ""), item.get("layer", ""), item.get("local_path", "")),
+        )
+
+        hansen_external_dependencies = [
+            {
+                "dependency_id": "hansen_gfc_2024_v1_12",
+                "dataset_version": hansen_config.dataset_version,
+                "tile_source": hansen_config.tile_source,
+                "aoi_geojson_sha256": geo_sha,
+                "tiles_manifest": {
+                    "relpath": str(hansen_analysis.tiles_manifest_path.relative_to(bdir)).replace(
+                        "\\", "/"
+                    ),
+                    "sha256": compute_sha256(hansen_analysis.tiles_manifest_path),
+                },
+                "tiles_used": tiles_used,
+            }
+        ]
+
     report: dict[str, Any] = {
         "report_version": "aoi_report_v1",
         "generated_at_utc": generated_at_utc,
@@ -407,6 +512,7 @@ def main(argv: list[str] | None = None) -> int:
         "computed_outputs": {},
         "validation": {},
         "methodology": {},
+        "external_dependencies": [],
         "aoi_id": aoi_id,
         "aoi_geometry_ref": {
             "kind": geo_kind,
@@ -495,6 +601,8 @@ def main(argv: list[str] | None = None) -> int:
                     "result_ref": "forest_loss_post_2020_computed",
                 }
             )
+        if hansen_external_dependencies is not None:
+            report["external_dependencies"] = hansen_external_dependencies
 
         artifact_paths.append(hansen_analysis.summary_path)
         artifact_paths.extend(
@@ -579,14 +687,17 @@ def main(argv: list[str] | None = None) -> int:
         artifact_paths.append(report_html_path)
 
     # Populate evidence_artifacts in report JSON (exclude manifest to avoid circularity).
-    report["evidence_artifacts"] = [
-        {
+    report["evidence_artifacts"] = []
+    for p in sorted(set(artifact_paths), key=lambda p: p.as_posix()):
+        entry = {
             "relpath": str(p.relative_to(bdir)).replace("\\\\", "/"),
             "sha256": compute_sha256(p),
             "size_bytes": p.stat().st_size,
         }
-        for p in sorted(set(artifact_paths), key=lambda p: p.as_posix())
-    ]
+        content_type = _content_type_for_path(p)
+        if content_type:
+            entry["content_type"] = content_type
+        report["evidence_artifacts"].append(entry)
 
     # If we wrote report JSON, rewrite it now that evidence_artifacts is populated.
     if args.out_format in ("json", "both"):

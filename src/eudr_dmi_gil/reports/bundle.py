@@ -58,6 +58,21 @@ def compute_sha256(path: str | Path, *, chunk_size: int = 1024 * 1024) -> str:
     return h.hexdigest()
 
 
+def _content_type_for_path(path: Path) -> str | None:
+    suffix = path.suffix.lower()
+    if suffix == ".json":
+        return "application/json"
+    if suffix == ".geojson":
+        return "application/geo+json"
+    if suffix == ".csv":
+        return "text/csv"
+    if suffix == ".html":
+        return "text/html"
+    if suffix == ".wkt":
+        return "text/plain"
+    return None
+
+
 def bundle_dir(
     *,
     bundle_id: str,
@@ -91,10 +106,14 @@ def write_manifest(bundle_dir: str | Path, artifacts: Iterable[str | Path]) -> b
 
     bdir = Path(bundle_dir)
     records: list[ArtifactRecord] = []
+    content_types: dict[str, str] = {}
 
     for artifact in artifacts:
         p = Path(artifact)
         relpath = str(p.relative_to(bdir))
+        content_type = _content_type_for_path(p)
+        if content_type:
+            content_types[relpath] = content_type
         records.append(
             ArtifactRecord(
                 relpath=relpath,
@@ -109,7 +128,12 @@ def write_manifest(bundle_dir: str | Path, artifacts: Iterable[str | Path]) -> b
         "manifest_version": "evidence_manifest_v1",
         "bundle_dir": str(bdir.as_posix()),
         "artifacts": [
-            {"relpath": r.relpath, "sha256": r.sha256, "size_bytes": r.size_bytes}
+            {
+                "relpath": r.relpath,
+                "sha256": r.sha256,
+                "size_bytes": r.size_bytes,
+                **({"content_type": content_types[r.relpath]} if r.relpath in content_types else {}),
+            }
             for r in records_sorted
         ],
     }

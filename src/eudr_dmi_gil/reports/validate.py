@@ -182,6 +182,7 @@ def _validate_hansen_methodology(report: Mapping[str, Any]) -> None:
         raise ValidationError("computed_outputs.forest_loss_post_2020 must be present")
 
     _ensure_evidence_refs(report, forest_outputs)
+    _ensure_external_dependency_refs(report)
     _ensure_validation_refs(report)
 
 
@@ -221,6 +222,28 @@ def _ensure_evidence_refs(report: Mapping[str, Any], forest_outputs: Mapping[str
         relpath = tiles_ref.get("relpath")
         if isinstance(relpath, str) and relpath not in relpaths:
             raise ValidationError(f"Missing evidence_artifacts relpath: {relpath}")
+
+
+def _ensure_external_dependency_refs(report: Mapping[str, Any]) -> None:
+    deps = report.get("external_dependencies")
+    if not isinstance(deps, list) or not deps:
+        raise ValidationError("external_dependencies must be present when Hansen outputs are included")
+
+    relpaths = _collect_evidence_relpaths(report)
+    has_hansen = False
+    for dep in deps:
+        if not isinstance(dep, Mapping):
+            continue
+        if dep.get("dependency_id") == "hansen_gfc_2024_v1_12":
+            has_hansen = True
+        tiles_manifest = dep.get("tiles_manifest")
+        if isinstance(tiles_manifest, Mapping):
+            relpath = tiles_manifest.get("relpath")
+            if isinstance(relpath, str) and relpath not in relpaths:
+                raise ValidationError(f"Missing evidence_artifacts relpath: {relpath}")
+
+    if not has_hansen:
+        raise ValidationError("external_dependencies must include hansen_gfc_2024_v1_12")
 
 
 def _ensure_validation_refs(report: Mapping[str, Any]) -> None:
