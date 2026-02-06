@@ -51,6 +51,24 @@ pip install -r requirements-methods.txt
 
 This includes the Python MinIO client (`minio`) used by AOI/report upload pipelines.
 
+## Repo-local data plane
+
+This repo stores externally downloaded inputs and intermediate files under a **repo-local data
+plane** that must never be committed to Git or published to the Digital Twin.
+
+Environment variable:
+- `EUDR_DMI_DATA_ROOT` (optional): overrides the default data root.
+
+Default layout under `./data/`:
+- `data/external/` — downloaded upstream datasets (Hansen, Maa-amet, etc).
+- `data/cache/` — HTTP caches / temporary downloads.
+- `data/derived/` — intermediate products not meant for evidence bundles.
+
+Rules:
+- Do not commit anything under `data/`.
+- Do not publish `data/` to the Digital Twin.
+- Only publish the site bundle outputs (e.g. `out/site_bundle/...`).
+
 MinIO operator setup (local server + required env vars):
 - `docs/operations/minio_setup.md`
 
