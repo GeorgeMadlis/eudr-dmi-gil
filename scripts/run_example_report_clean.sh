@@ -8,7 +8,7 @@ test -x "$PYTHON" || { echo "ERROR: missing venv python at $PYTHON" >&2; exit 2;
 
 export PYTHONPATH="$REPO_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 
-AOI_PATH="$REPO_ROOT/aoi_json_examples/estonia_testland1.geojson"
+AOI_PATH="${AOI_GEOJSON:-$REPO_ROOT/aoi_json_examples/estonia_testland1.geojson}"
 EVIDENCE_ROOT="$REPO_ROOT/.tmp/evidence_example"
 OUTPUT_ROOT="$REPO_ROOT/out/site_bundle/aoi_reports"
 HANSEN_TILE_DIR="${EUDR_DMI_HANSEN_TILE_DIR:-$REPO_ROOT/tests/fixtures/hansen/tiles}"
@@ -39,7 +39,7 @@ for arg in "$@"; do
   esac
 done
 
-test -f "$AOI_PATH" || { echo "ERROR: missing AOI: $AOI_PATH" >&2; exit 2; }
+test -f "$AOI_PATH" || { echo "ERROR: missing AOI GeoJSON: $AOI_PATH" >&2; exit 2; }
 
 rm -rf "$EVIDENCE_ROOT"
 mkdir -p "$EVIDENCE_ROOT"
@@ -47,8 +47,8 @@ mkdir -p "$EVIDENCE_ROOT"
 export EUDR_DMI_EVIDENCE_ROOT="$EVIDENCE_ROOT"
 export EUDR_DMI_AOI_STAGING_DIR="$OUTPUT_ROOT"
 if [[ ! -d "$HANSEN_TILE_DIR" ]]; then
-  echo "ERROR: missing Hansen fixture tiles dir: $HANSEN_TILE_DIR" >&2
-  echo "Set EUDR_DMI_HANSEN_TILE_DIR to a fixture tileset (e.g. tests/fixtures/hansen/tiles)." >&2
+  echo "ERROR: missing Hansen tiles dir: $HANSEN_TILE_DIR" >&2
+  echo "Set EUDR_DMI_HANSEN_TILE_DIR (or configure data/external Hansen tiles) before running." >&2
   exit 2
 fi
 
