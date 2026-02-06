@@ -7,6 +7,10 @@ This repository is the authoritative implementation for dependency tracking. The
 This folder records upstream data sources referenced by the Digital Twin (DT)
 Dependencies page, without embedding upstream content in this repository.
 
+Authoritative dependency sources are seeded from
+`data_db/dependency_sources.csv` and exported to `docs/dependencies/sources.*`
+via `scripts/export_dependency_sources.py`.
+
 ## Compatibility note
 
 Some code paths referenced by the DT are preserved as *compatibility shims* in

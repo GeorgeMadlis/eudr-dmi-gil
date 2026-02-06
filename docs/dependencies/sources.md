@@ -4,8 +4,7 @@
 
 This repository is the authoritative implementation for dependency provenance. The Digital Twin repository is the public, non-authoritative portal for inspection and governance.
 
-Purpose: record the upstream dependency identifiers, URLs, expected content
-types, and server audit paths referenced by the Digital Twin Dependencies page.
+Purpose: record the upstream dependency identifiers, URLs, expected content types, and server audit paths referenced by the Digital Twin Dependencies page.
 
 Implementation references (authoritative):
 - [docs/dependencies/README.md](README.md)
