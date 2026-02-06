@@ -4,6 +4,8 @@ import os
 import subprocess
 from pathlib import Path
 
+DEFAULT_EXTERNAL_ROOT = Path("/Users/server/data/eudr-dmi")
+
 
 def repo_root() -> Path:
     """Return repository root.
@@ -47,7 +49,17 @@ def data_root() -> Path:
 
 
 def external_root() -> Path:
-    return data_root() / "external"
+    """External data root.
+
+    Preference order:
+    1) EUDR_DMI_DATA_ROOT
+    2) DEFAULT_EXTERNAL_ROOT
+    """
+
+    override = os.environ.get("EUDR_DMI_DATA_ROOT")
+    if override:
+        return ensure_dir(Path(override).expanduser().resolve())
+    return ensure_dir(DEFAULT_EXTERNAL_ROOT)
 
 
 def cache_root() -> Path:
@@ -62,6 +74,10 @@ def ensure_dir(path: str | Path) -> Path:
     p = Path(path)
     p.mkdir(parents=True, exist_ok=True)
     return p
+
+
+def external_dataset_dir(dataset_id: str, version: str) -> Path:
+    return ensure_dir(external_root() / "datasets" / dataset_id / version)
 
 
 def safe_relpath_under(root: str | Path, path: str | Path) -> str:

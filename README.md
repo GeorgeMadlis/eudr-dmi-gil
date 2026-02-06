@@ -118,7 +118,9 @@ scripts/run_example_report_clean.sh
 Notes:
 - This is a mandatory full-stack regression test and must never use placeholder metrics.
 - If `AOI_GEOJSON` is not set, the script uses `aoi_json_examples/estonia_testland1.geojson`.
-- It relies on committed Hansen fixtures under `tests/fixtures/hansen/tiles` and fails fast if they are missing.
+- It bootstraps Hansen tiles into the external data plane (default: `/Users/server/data/eudr-dmi`).
+- Override the external data root with `EUDR_DMI_DATA_ROOT=/path/to/data`.
+- Override the Hansen URL template with `EUDR_DMI_HANSEN_URL_TEMPLATE`.
 - Outputs are written under `out/site_bundle/aoi_reports` and evidence under `.tmp/evidence_example`.
 
 ### Use a different AOI GeoJSON (custom input)

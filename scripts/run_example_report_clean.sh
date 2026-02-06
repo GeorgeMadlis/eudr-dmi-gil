@@ -13,12 +13,13 @@ export PYTHONPATH="$REPO_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 AOI_PATH="${AOI_GEOJSON:-$REPO_ROOT/aoi_json_examples/estonia_testland1.geojson}"
 EVIDENCE_ROOT="$REPO_ROOT/.tmp/evidence_example"
 OUTPUT_ROOT="$REPO_ROOT/out/site_bundle/aoi_reports"
-HANSEN_TILE_DIR="${EUDR_DMI_HANSEN_TILE_DIR:-$REPO_ROOT/tests/fixtures/hansen/tiles}"
+export EUDR_DMI_DATA_ROOT="${EUDR_DMI_DATA_ROOT:-/Users/server/data/eudr-dmi}"
+HANSEN_TILE_DIR="${EUDR_DMI_HANSEN_TILE_DIR:-$EUDR_DMI_DATA_ROOT/hansen/hansen_gfc_2024_v1_12/tiles}"
 DT_REPO="${DT_REPO:-/Users/server/projects/eudr-dmi-gil-digital-twin}"
 
-RUN_ID="estonia_testland1_example"
+RUN_ID="${RUN_ID:-example}"
 STAGED_RUN_ID="example"
-AOI_ID="estonia_testland1"
+AOI_ID="${AOI_ID:-estonia_testland1}"
 PUBLISH_DT=0
 
 for arg in "$@"; do
@@ -48,9 +49,12 @@ mkdir -p "$EVIDENCE_ROOT"
 
 export EUDR_DMI_EVIDENCE_ROOT="$EVIDENCE_ROOT"
 export EUDR_DMI_AOI_STAGING_DIR="$OUTPUT_ROOT"
-if [[ ! -d "$HANSEN_TILE_DIR" ]]; then
-  echo "ERROR: missing Hansen tiles dir: $HANSEN_TILE_DIR" >&2
-  echo "Repo checkout is missing committed fixtures at tests/fixtures/hansen/tiles." >&2
+if ! "$PYTHON" scripts/ensure_hansen_for_aoi.py \
+  --aoi-id "$AOI_ID" \
+  --aoi-geojson "$AOI_PATH" \
+  --download \
+  --layers "treecover2000,lossyear"; then
+  echo "ERROR: Hansen bootstrap failed. Ensure internet access or set EUDR_DMI_HANSEN_URL_TEMPLATE." >&2
   exit 2
 fi
 
