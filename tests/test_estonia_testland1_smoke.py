@@ -52,9 +52,9 @@ def test_estonia_testland1_geojson_smoke(tmp_path: Path) -> None:
     bundle_date = datetime.now(timezone.utc).date().strftime("%Y-%m-%d")
     bundle_dir = evidence_root / bundle_date / bundle_id
 
-    report_json = bundle_dir / "reports" / "aoi_report_v1" / f"{aoi_id}.json"
-    report_html = bundle_dir / "reports" / "aoi_report_v1" / f"{aoi_id}.html"
-    metrics_csv = bundle_dir / "reports" / "aoi_report_v1" / aoi_id / "metrics.csv"
+    report_json = bundle_dir / "reports" / "aoi_report_v2" / f"{aoi_id}.json"
+    report_html = bundle_dir / "reports" / "aoi_report_v2" / f"{aoi_id}.html"
+    metrics_csv = bundle_dir / "reports" / "aoi_report_v2" / aoi_id / "metrics.csv"
     manifest = bundle_dir / "manifest.json"
     geometry = bundle_dir / "inputs" / "aoi.geojson"
 

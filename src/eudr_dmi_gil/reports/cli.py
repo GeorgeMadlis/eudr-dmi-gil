@@ -4,6 +4,7 @@ import argparse
 import os
 import re
 import sys
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,8 +17,8 @@ from .bundle import compute_sha256
 from .bundle import resolve_evidence_root, write_manifest
 from .determinism import canonical_json_bytes, sha256_bytes, write_bytes
 from eudr_dmi_gil.deps.hansen_acquire import build_entries_from_provenance
+from eudr_dmi_gil.geo.aoi_area import compute_aoi_geodesic_area_ha
 from .policy_refs import collect_policy_mapping_refs
-from .validate import validate_aoi_report_v1
 
 
 def _utc_now_iso() -> str:
@@ -26,6 +27,21 @@ def _utc_now_iso() -> str:
 
 def _utc_now_compact() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _git_commit() -> str:
+    override = os.environ.get("EUDR_DMI_GIT_COMMIT")
+    if override:
+        return override.strip()
+    try:
+        out = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        return out
+    except Exception:
+        return ""
 
 
 def _sanitize_id(value: str) -> str:
@@ -59,90 +75,90 @@ def _render_html_summary(report: dict[str, Any], *, html_path: Path, artifact_pa
     def row(k: str, v: str) -> str:
         return f"<tr><th>{k}</th><td>{v}</td></tr>"
 
-    report_json_path = next((p for p in artifact_paths if p.suffix == ".json"), None)
+    def link_row(label: str, relpath: str) -> str:
+        return f"<tr><th>{label}</th><td><a href=\"{relpath}\">{relpath}</a></td></tr>"
 
-    links_html = "\n".join(
-        f'<li><a href="{_rel_href(html_path, p)}">{_rel_href(html_path, p)}</a></li>'
+    summary = report.get("results_summary", {})
+    aoi_area = summary.get("aoi_area", {})
+    deforestation = summary.get("deforestation_free_post_2020", {})
+
+    aoi_id = report.get("aoi_id", "(unknown)")
+    bundle_id = report.get("bundle_id", "(unknown)")
+    generated = report.get("generated_at_utc", "(unknown)")
+    version = report.get("report_version", "(unknown)")
+    geom_ref = report.get("aoi_geometry_ref", {})
+
+    bundle_root = html_path.parents[2]
+    evidence_artifacts = report.get("evidence_artifacts", [])
+    evidence_rows = []
+    for item in evidence_artifacts:
+        if not isinstance(item, dict):
+            continue
+        relpath = item.get("relpath")
+        if not isinstance(relpath, str):
+            continue
+        abs_path = bundle_root / relpath
+        href = _rel_href(html_path, abs_path)
+        role = (item.get("meta") or {}).get("role") if isinstance(item.get("meta"), dict) else ""
+        evidence_rows.append(
+            f"<tr><td><a href=\"{href}\">{relpath}</a></td><td><code>{item.get('sha256')}</code></td><td>{item.get('size_bytes','')}</td><td>{role}</td></tr>"
+        )
+
+    evidence_table = "\n".join(evidence_rows) if evidence_rows else "<tr><td colspan=\"4\">(none)</td></tr>"
+
+    datasets_rows = []
+    for ds in report.get("datasets", []) or []:
+        if not isinstance(ds, dict):
+            continue
+        datasets_rows.append(
+            f"<tr><td>{ds.get('dataset_id')}</td><td>{ds.get('version','')}</td><td>{ds.get('retrieved_at_utc','')}</td><td>{ds.get('license','')}</td><td>{ds.get('source_url','')}</td></tr>"
+        )
+    datasets_table = "\n".join(datasets_rows) if datasets_rows else "<tr><td colspan=\"5\">(none)</td></tr>"
+
+    params_rows = []
+    for key, value in sorted((report.get("parameters") or {}).items(), key=lambda kv: kv[0]):
+        params_rows.append(row(key, str(value)))
+    params_table = "\n".join(params_rows) if params_rows else row("(none)", "")
+
+    mapping_rows = []
+    for entry in report.get("policy_mapping", []) or []:
+        if not isinstance(entry, dict):
+            continue
+        evidence_fields = ", ".join(entry.get("evidence_fields") or [])
+        artifacts = ", ".join(
+            f"<a href=\"{_rel_href(html_path, bundle_root / rel)}\">{rel}</a>"
+            for rel in entry.get("artifact_relpaths") or []
+        )
+        mapping_rows.append(
+            f"<tr><td>{entry.get('article_ref')}</td><td>{entry.get('requirement')}</td><td>{evidence_fields}</td><td>{artifacts}</td><td>{entry.get('status')}</td></tr>"
+        )
+    mapping_table = "\n".join(mapping_rows) if mapping_rows else "<tr><td colspan=\"5\">(none)</td></tr>"
+
+    deforestation_rows = []
+    if deforestation:
+        deforestation_rows.extend(
+            [
+                row("Definition", "Forest loss after 2020-12-31 (pixel-wise intersection)"),
+                row("Forest loss (ha)", str(deforestation.get("forest_loss_post_2020_ha"))),
+                row("Percent of AOI", str(deforestation.get("percent_of_aoi"))),
+                row("Threshold (ha)", str(deforestation.get("threshold_ha"))),
+                row("Status", str(deforestation.get("status"))),
+                row("Uncertainty", str(deforestation.get("uncertainty"))),
+            ]
+        )
+    deforestation_table = "\n".join(deforestation_rows) if deforestation_rows else row("(none)", "")
+
+    artifacts_for_links = "\n".join(
+        f"<li><a href=\"{_rel_href(html_path, p)}\">{_rel_href(html_path, p)}</a></li>"
         for p in sorted(artifact_paths, key=lambda p: p.as_posix())
     )
-
-    metrics_rows = "\n".join(
-        row(k, f"{v.get('value')} {v.get('unit')}")
-        for k, v in sorted((report.get("metrics") or {}).items(), key=lambda kv: kv[0])
-    )
-
-    inputs_rows = "\n".join(
-        row(
-            src.get("source_id", "(unknown)"),
-            " ".join(
-                part
-                for part in [
-                    (f"version={src.get('version')}" if src.get("version") else ""),
-                    (f"sha256={src.get('sha256')}" if src.get("sha256") else ""),
-                    (f"uri={src.get('uri')}" if src.get("uri") else ""),
-                ]
-                if part
-            ),
-        )
-        for src in (report.get("inputs") or {}).get("sources", [])
-    )
-
-    policy_refs = report.get("policy_mapping_refs") or []
-    policy_html = "\n".join(f"<li>{ref}</li>" for ref in policy_refs)
-
-    report_link = ""
-    if report_json_path is not None:
-        report_link = (
-            f'<p><a href="{_rel_href(html_path, report_json_path)}">Open report JSON</a></p>'
-        )
-
-    dependencies = report.get("external_dependencies") or []
-    bundle_root = html_path.parents[2]
-    dep_rows = []
-    dep_tiles_rows = []
-    dep_manifest_href = ""
-    for dep in dependencies:
-        if not isinstance(dep, dict):
-            continue
-        dep_rows.append(
-            row(
-                dep.get("dependency_id", "(unknown)"),
-                " ".join(
-                    part
-                    for part in [
-                        f"dataset_version={dep.get('dataset_version', '')}",
-                        f"tile_source={dep.get('tile_source', '')}",
-                    ]
-                    if part.strip("=")
-                ),
-            )
-        )
-        tiles_manifest = dep.get("tiles_manifest", {})
-        if isinstance(tiles_manifest, dict):
-            relpath = tiles_manifest.get("relpath")
-            if isinstance(relpath, str) and relpath:
-                abs_path = bundle_root / relpath
-                dep_manifest_href = (
-                    f'<a href="{_rel_href(html_path, abs_path)}">{relpath}</a>'
-                )
-
-        tiles_used = dep.get("tiles_used") or []
-        for tile in tiles_used:
-            if not isinstance(tile, dict):
-                continue
-            dep_tiles_rows.append(
-                f"<tr><td>{tile.get('tile_id')}</td><td>{tile.get('layer')}</td><td><code>{tile.get('sha256')}</code></td></tr>"
-            )
-
-    dep_table = "\n".join(dep_rows) if dep_rows else row("(none)", "")
-    dep_tiles_table = "\n".join(dep_tiles_rows) if dep_tiles_rows else "<tr><td colspan=\"3\">(none)</td></tr>"
 
     return f"""<!doctype html>
 <html lang=\"en\">
 <head>
   <meta charset=\"utf-8\" />
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-  <title>AOI Report Summary — {report.get('aoi_id')}</title>
+  <title>AOI Report — {aoi_id}</title>
   <style>
     body {{ font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 24px; }}
     table {{ border-collapse: collapse; width: 100%; }}
@@ -150,51 +166,60 @@ def _render_html_summary(report: dict[str, Any], *, html_path: Path, artifact_pa
     th {{ background: #f6f6f6; text-align: left; width: 240px; }}
     h2 {{ margin-top: 28px; }}
     code {{ background: #f6f6f6; padding: 1px 4px; border-radius: 4px; }}
-        .muted {{ color: #666; }}
+    .muted {{ color: #666; }}
   </style>
 </head>
 <body>
-  <h1>AOI Report Summary</h1>
+  <h1>AOI Report</h1>
   <table>
-    {row('AOI', str(report.get('aoi_id')))}
-    {row('Bundle', str(report.get('bundle_id')))}
-    {row('Generated (UTC)', str(report.get('generated_at_utc')))}
-    {row('Report Version', str(report.get('report_version')))}
-    {row('Geometry Ref', f"{report.get('aoi_geometry_ref', {}).get('kind')}: {report.get('aoi_geometry_ref', {}).get('value')}")}
+    {row('AOI', str(aoi_id))}
+    {row('Bundle', str(bundle_id))}
+    {row('Generated (UTC)', str(generated))}
+    {row('Report Version', str(version))}
+    {row('Geometry Ref', f"{geom_ref.get('kind')}: {geom_ref.get('value')}")}
+    {row('AOI area (ha)', str(aoi_area.get('area_ha')))}
+    {row('AOI area method', str(aoi_area.get('method')))}
   </table>
 
-  {report_link}
-
-  <h2>Inputs</h2>
+  <h2>Deforestation-free (post-2020)</h2>
   <table>
-    {inputs_rows or row('(none)', '')}
+    {deforestation_table}
   </table>
 
-  <h2>Metrics</h2>
+  <h2>Forest baseline / forest mask</h2>
   <table>
-    {metrics_rows or row('(none)', '')}
+    {row('Tree cover threshold (%)', str((report.get('parameters', {}).get('forest_loss_post_2020') or {}).get('canopy_threshold_percent', '')))}
+    {row('Baseline year', '2000')}
+    {row('Cutoff year', str((report.get('parameters', {}).get('forest_loss_post_2020') or {}).get('cutoff_year', '')))}
   </table>
 
-  <h2>Evidence Artifacts</h2>
+  <h2>Data sources & provenance</h2>
+  <table>
+    <tr><th>dataset_id</th><th>version</th><th>retrieved_at_utc</th><th>license</th><th>source_url</th></tr>
+    {datasets_table}
+  </table>
+
+  <h2>Methods & parameters</h2>
+  <table>
+    {params_table}
+  </table>
+
+  <h2>Traceability to EUDR Articles</h2>
+  <table>
+    <tr><th>Article</th><th>Requirement</th><th>Evidence fields</th><th>Artifacts</th><th>Status</th></tr>
+    {mapping_table}
+  </table>
+
+  <h2>Evidence artifact index</h2>
+  <table>
+    <tr><th>relpath</th><th>sha256</th><th>size_bytes</th><th>role</th></tr>
+    {evidence_table}
+  </table>
+
+  <h2>Bundle artifacts</h2>
   <ul>
-    {links_html}
+    {artifacts_for_links}
   </ul>
-
-  <h2>Policy Mapping References</h2>
-  <ul>
-    {policy_html or '<li>(none)</li>'}
-  </ul>
-
-    <h2>External dependencies</h2>
-    <table>
-        {dep_table}
-    </table>
-    <p>Tiles manifest: {dep_manifest_href or '(none)'}</p>
-    <p class="muted">Raw TIFFs are stored under repo/data/external and are not part of the published bundle.</p>
-    <table>
-        <tr><th>tile_id</th><th>layer</th><th>sha256</th></tr>
-        {dep_tiles_table}
-    </table>
 </body>
 </html>
 """
@@ -330,8 +355,32 @@ def main(argv: list[str] | None = None) -> int:
     write_bytes(geo_path, geo_bytes)
     geo_sha = sha256_bytes(geo_bytes)
 
+    aoi_area_ha: float | None = None
+    aoi_area_method = ""
+    if geo_kind == "geojson":
+        try:
+            aoi_area_ha, aoi_area_method = compute_aoi_geodesic_area_ha(geo_path)
+        except Exception:
+            aoi_area_ha = None
+            aoi_area_method = ""
+
     fallback_dummy = None if args.enable_hansen_post_2020_loss else args.dummy_metric
     metric_rows = _parse_metric_rows(args.metric, fallback_dummy=fallback_dummy)
+    if aoi_area_ha is not None:
+        metric_rows.append(
+            MetricRow(
+                variable="aoi_area_ha",
+                value=aoi_area_ha,
+                unit="ha",
+                source="geometry",
+                notes=aoi_area_method or "",
+            )
+        )
+        metric_rows = sorted(metric_rows, key=lambda r: r.variable)
+
+    forest_loss_threshold_ha = 0.0
+    forest_loss_percent_of_aoi: float | None = None
+    forest_loss_status = "na"
 
     hansen_result = None
     hansen_analysis = None
@@ -355,7 +404,7 @@ def main(argv: list[str] | None = None) -> int:
             write_masks=True,
             aoi_geojson_path=geo_path,
         )
-        hansen_output_dir = bdir / "reports" / "aoi_report_v1" / aoi_id / "hansen"
+        hansen_output_dir = bdir / "reports" / "aoi_report_v2" / aoi_id / "hansen"
         hansen_analysis = run_forest_loss_post_2020(
             aoi_geojson_path=geo_path,
             output_dir=hansen_output_dir,
@@ -364,6 +413,16 @@ def main(argv: list[str] | None = None) -> int:
             run_id=bundle_id,
         )
         hansen_result = hansen_analysis.raw
+
+        if aoi_area_ha:
+            forest_loss_percent_of_aoi = (
+                hansen_result.forest_loss_post_2020_ha / aoi_area_ha
+            ) * 100.0
+            forest_loss_status = (
+                "pass"
+                if hansen_result.forest_loss_post_2020_ha <= forest_loss_threshold_ha
+                else "fail"
+            )
 
         metric_rows.extend(
             [
@@ -390,6 +449,16 @@ def main(argv: list[str] | None = None) -> int:
                 ),
             ]
         )
+        if forest_loss_percent_of_aoi is not None:
+            metric_rows.append(
+                MetricRow(
+                    variable="forest_loss_post_2020_percent_of_aoi",
+                    value=forest_loss_percent_of_aoi,
+                    unit="percent",
+                    source="hansen_gfc",
+                    notes="forest_loss_post_2020_ha / aoi_area_ha",
+                )
+            )
         metric_rows = sorted(metric_rows, key=lambda r: r.variable)
 
         hansen_methodology_block = {
@@ -449,16 +518,19 @@ def main(argv: list[str] | None = None) -> int:
         }
 
         hansen_acceptance_criteria_block = {
-            "criteria_id": "forest_loss_post_2020_computed",
-            "description": "Forest loss post-2020 computed from Hansen tiles.",
+            "criteria_id": "forest_loss_post_2020_max_ha",
+            "description": "Forest loss post-2020 must be <= 0 ha.",
             "evidence_classes": ["forest_loss_post_2020"],
-            "decision_type": "presence",
+            "decision_type": "threshold",
         }
         hansen_result_block = {
-            "result_id": "forest_loss_post_2020_computed",
-            "criteria_ids": ["forest_loss_post_2020_computed"],
+            "result_id": "forest_loss_post_2020_max_ha",
+            "criteria_ids": ["forest_loss_post_2020_max_ha"],
             "evidence_classes": ["forest_loss_post_2020"],
-            "status": "computed",
+            "status": forest_loss_status,
+            "observed_value": hansen_result.forest_loss_post_2020_ha,
+            "threshold_value": forest_loss_threshold_ha,
+            "unit": "ha",
         }
 
         entries = hansen_config.tile_entries or build_entries_from_provenance(
@@ -496,8 +568,94 @@ def main(argv: list[str] | None = None) -> int:
             }
         ]
 
+    policy_mapping_refs = policy_mapping_refs or [
+        "policy-spine:eudr/article-3",
+        "policy-spine:eudr/article-9",
+    ]
+
+    datasets: list[dict[str, Any]] = [
+        {
+            "dataset_id": "aoi_geometry_input",
+            "version": "user_supplied",
+            "retrieved_at_utc": generated_at_utc,
+            "license": "user_supplied",
+            "source_url": geo_rel.as_posix(),
+        }
+    ]
+    if hansen_result is not None:
+        datasets.append(
+            {
+                "dataset_id": "hansen_gfc_2024_v1_12",
+                "version": hansen_config.dataset_version,
+                "retrieved_at_utc": generated_at_utc,
+                "license": "Hansen GFC (public)",
+                "source_url": "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2024-v1.12/",
+            }
+        )
+
+    parameters: dict[str, Any] = {
+        "aoi_area_method": aoi_area_method or "unknown",
+        "implementation": {
+            "forest_loss_post_2020": "v1",
+            "git_commit": _git_commit(),
+        },
+    }
+    if hansen_result is not None:
+        parameters["forest_loss_post_2020"] = {
+            "canopy_threshold_percent": hansen_config.canopy_threshold_percent,
+            "cutoff_year": hansen_config.cutoff_year,
+            "acceptance_threshold_ha": forest_loss_threshold_ha,
+            "pixel_area_method": "geodesic_wgs84_pyproj",
+        }
+
+    results_summary: dict[str, Any] = {
+        "aoi_area": {
+            "area_ha": aoi_area_ha if aoi_area_ha is not None else 0.0,
+            "method": aoi_area_method or "unknown",
+        }
+    }
+    if hansen_result is not None and forest_loss_percent_of_aoi is not None:
+        results_summary["deforestation_free_post_2020"] = {
+            "forest_loss_post_2020_ha": hansen_result.forest_loss_post_2020_ha,
+            "percent_of_aoi": forest_loss_percent_of_aoi,
+            "threshold_ha": forest_loss_threshold_ha,
+            "status": forest_loss_status,
+            "uncertainty": {
+                "pixel_area_method": "geodesic_wgs84_pyproj",
+                "nodata": "masked_as_no_loss",
+                "projection": "EPSG:4326",
+                "conservative_bounds": "area estimates are lower-bound for masked/no-data pixels",
+            },
+        }
+
+    policy_mapping: list[dict[str, Any]] = [
+        {
+            "article_ref": "EUDR Article 9",
+            "requirement": "AOI geometry is declared and traceable",
+            "evidence_fields": ["aoi_geometry_ref", "inputs.sources"],
+            "artifact_relpaths": [geo_rel.as_posix()],
+            "status": "pass",
+        }
+    ]
+    if hansen_result is not None and hansen_analysis is not None:
+        policy_mapping.append(
+            {
+                "article_ref": "EUDR Article 3",
+                "requirement": "Deforestation-free after 2020-12-31",
+                "evidence_fields": [
+                    "results_summary.deforestation_free_post_2020",
+                    "computed.forest_loss_post_2020.pixel_forest_loss_post_2020_ha",
+                ],
+                "artifact_relpaths": [
+                    str(hansen_analysis.loss_mask_path.relative_to(bdir)).replace("\\", "/"),
+                    str(hansen_analysis.tiles_manifest_path.relative_to(bdir)).replace("\\", "/"),
+                ],
+                "status": forest_loss_status,
+            }
+        )
+
     report: dict[str, Any] = {
-        "report_version": "aoi_report_v1",
+        "report_version": "aoi_report_v2",
         "generated_at_utc": generated_at_utc,
         "bundle_id": bundle_id,
         "report_metadata": {
@@ -532,6 +690,10 @@ def main(argv: list[str] | None = None) -> int:
         },
         "metrics": _metrics_from_rows(metric_rows),
         "evidence_artifacts": [],
+        "parameters": parameters,
+        "datasets": datasets,
+        "policy_mapping": policy_mapping,
+        "results_summary": results_summary,
         "evidence_registry": {
             "evidence_classes": [
                 {
@@ -553,7 +715,7 @@ def main(argv: list[str] | None = None) -> int:
             {
                 "result_id": "result-001",
                 "criteria_ids": ["aoi_geometry_present"],
-                "status": "placeholder",
+                "status": "pass",
             }
         ],
         "assumptions": [],
@@ -598,8 +760,8 @@ def main(argv: list[str] | None = None) -> int:
                     "regulation": "EUDR",
                     "article_ref": "article-3",
                     "evidence_class": "forest_loss_post_2020",
-                    "acceptance_criteria": "forest_loss_post_2020_computed",
-                    "result_ref": "forest_loss_post_2020_computed",
+                    "acceptance_criteria": "forest_loss_post_2020_max_ha",
+                    "result_ref": "forest_loss_post_2020_max_ha",
                 }
             )
         if hansen_external_dependencies is not None:
@@ -639,7 +801,7 @@ def main(argv: list[str] | None = None) -> int:
     if geo_kind == "geojson":
         from eudr_dmi_gil.analysis.maaamet_validation import run_maaamet_crosscheck
 
-        maaamet_dir = bdir / "reports" / "aoi_report_v1" / aoi_id / "maaamet"
+        maaamet_dir = bdir / "reports" / "aoi_report_v2" / aoi_id / "maaamet"
         computed_current_forest = (
             hansen_result.current_tree_cover_ha if hansen_result is not None else None
         )
@@ -665,12 +827,12 @@ def main(argv: list[str] | None = None) -> int:
         artifact_paths.extend([maaamet_result.csv_path, maaamet_result.summary_path])
 
     # metrics.csv (portable, deterministic) lives alongside the report outputs.
-    metrics_csv_path = bdir / "reports" / "aoi_report_v1" / aoi_id / "metrics.csv"
+    metrics_csv_path = bdir / "reports" / "aoi_report_v2" / aoi_id / "metrics.csv"
     _write_metrics_csv(metrics_csv_path, metric_rows)
     artifact_paths.append(metrics_csv_path)
 
     # JSON output
-    report_json_path = bdir / "reports" / "aoi_report_v1" / f"{aoi_id}.json"
+    report_json_path = bdir / "reports" / "aoi_report_v2" / f"{aoi_id}.json"
     if args.out_format in ("json", "both"):
         report_json_path.parent.mkdir(parents=True, exist_ok=True)
         report_json_bytes = canonical_json_bytes(report) + b"\n"
@@ -678,7 +840,7 @@ def main(argv: list[str] | None = None) -> int:
         artifact_paths.append(report_json_path)
 
     # HTML output
-    report_html_path = bdir / "reports" / "aoi_report_v1" / f"{aoi_id}.html"
+    report_html_path = bdir / "reports" / "aoi_report_v2" / f"{aoi_id}.html"
     if args.out_format in ("html", "both"):
         report_html_path.parent.mkdir(parents=True, exist_ok=True)
         # Link to whatever artifacts are already known; report JSON is included if produced.
@@ -687,17 +849,44 @@ def main(argv: list[str] | None = None) -> int:
         report_html_path.write_text(html, encoding="utf-8")
         artifact_paths.append(report_html_path)
 
+    def _artifact_role(relpath: str) -> str | None:
+        if relpath == geo_rel.as_posix():
+            return "aoi_geometry"
+        if relpath.endswith(f"/{aoi_id}.json"):
+            return "report_json"
+        if relpath.endswith(f"/{aoi_id}.html"):
+            return "report_html"
+        if relpath.endswith("/metrics.csv"):
+            return "metrics_csv"
+        if relpath.endswith("forest_loss_post_2020_mask.geojson"):
+            return "forest_loss_mask"
+        if relpath.endswith("forest_current_tree_cover_mask.geojson"):
+            return "forest_current_mask"
+        if relpath.endswith("forest_loss_post_2020_tiles.json"):
+            return "hansen_tiles_manifest"
+        if relpath.endswith("forest_loss_post_2020_summary.json"):
+            return "forest_loss_summary"
+        if relpath.endswith("maaamet_forest_area_crosscheck.csv"):
+            return "maaamet_crosscheck_csv"
+        if relpath.endswith("maaamet_forest_area_crosscheck_summary.json"):
+            return "maaamet_crosscheck_summary"
+        return None
+
     # Populate evidence_artifacts in report JSON (exclude manifest to avoid circularity).
     report["evidence_artifacts"] = []
     for p in sorted(set(artifact_paths), key=lambda p: p.as_posix()):
+        relpath = str(p.relative_to(bdir)).replace("\\\\", "/")
         entry = {
-            "relpath": str(p.relative_to(bdir)).replace("\\\\", "/"),
+            "relpath": relpath,
             "sha256": compute_sha256(p),
             "size_bytes": p.stat().st_size,
         }
         content_type = _content_type_for_path(p)
         if content_type:
             entry["content_type"] = content_type
+        role = _artifact_role(relpath)
+        if role:
+            entry["meta"] = {"role": role}
         report["evidence_artifacts"].append(entry)
 
     # If we wrote report JSON, rewrite it now that evidence_artifacts is populated.
@@ -705,7 +894,9 @@ def main(argv: list[str] | None = None) -> int:
         report_json_path.write_bytes(canonical_json_bytes(report) + b"\n")
 
     # Validate contract.
-    validate_aoi_report_v1(report)
+    from .validate import validate_aoi_report
+
+    validate_aoi_report(report)
 
     # Manifest written by bundle writer.
     # Exclude manifest itself from artifacts passed to the writer.

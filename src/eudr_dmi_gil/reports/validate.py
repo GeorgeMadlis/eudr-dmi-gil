@@ -25,6 +25,13 @@ def _default_schema_path() -> Path:
     return repo_root / "schemas" / "reports" / "aoi_report_v1.schema.json"
 
 
+def _schema_path_for_version(report_version: str) -> Path:
+    repo_root = _find_repo_root(Path(__file__).resolve())
+    if report_version == "aoi_report_v2":
+        return repo_root / "schemas" / "reports" / "aoi_report_v2.schema.json"
+    return repo_root / "schemas" / "reports" / "aoi_report_v1.schema.json"
+
+
 def load_schema(schema_path: str | Path | None = None) -> dict[str, Any]:
     path = Path(schema_path) if schema_path is not None else _default_schema_path()
     return json.loads(path.read_text(encoding="utf-8"))
@@ -47,6 +54,26 @@ def validate_aoi_report_v1(
 
     _validate_traceability(dict(report))
     _validate_hansen_methodology(dict(report))
+
+
+def validate_aoi_report(
+    report: Mapping[str, Any],
+    *,
+    schema_path: str | Path | None = None,
+) -> None:
+    report_version = str(report.get("report_version", "aoi_report_v1"))
+    resolved_schema = (
+        Path(schema_path)
+        if schema_path is not None
+        else _schema_path_for_version(report_version)
+    )
+    schema = load_schema(resolved_schema)
+    validator = Draft202012Validator(schema, format_checker=jsonschema.FormatChecker())
+    validator.validate(dict(report))
+
+    _validate_traceability(dict(report))
+    _validate_hansen_methodology(dict(report))
+    _validate_policy_mapping(dict(report))
 
 
 def _validate_traceability(report: Mapping[str, Any]) -> None:
@@ -261,6 +288,23 @@ def _ensure_validation_refs(report: Mapping[str, Any]) -> None:
             raise ValidationError(f"Missing evidence_artifacts relpath: {relpath}")
 
 
+def _validate_policy_mapping(report: Mapping[str, Any]) -> None:
+    mapping = report.get("policy_mapping")
+    if mapping is None:
+        return
+    if not isinstance(mapping, list):
+        raise ValidationError("policy_mapping must be a list")
+    relpaths = _collect_evidence_relpaths(report)
+    for entry in mapping:
+        if not isinstance(entry, Mapping):
+            continue
+        artifacts = entry.get("artifact_relpaths")
+        if isinstance(artifacts, list):
+            for relpath in artifacts:
+                if isinstance(relpath, str) and relpath not in relpaths:
+                    raise ValidationError(f"Missing evidence_artifacts relpath: {relpath}")
+
+
 def validate_aoi_report_v1_file(
     json_path: str | Path,
     *,
@@ -270,4 +314,14 @@ def validate_aoi_report_v1_file(
 
     obj = json.loads(Path(json_path).read_text(encoding="utf-8"))
     validate_aoi_report_v1(obj, schema_path=schema_path)
+    return obj
+
+
+def validate_aoi_report_file(
+    json_path: str | Path,
+    *,
+    schema_path: str | Path | None = None,
+) -> dict[str, Any]:
+    obj = json.loads(Path(json_path).read_text(encoding="utf-8"))
+    validate_aoi_report(obj, schema_path=schema_path)
     return obj

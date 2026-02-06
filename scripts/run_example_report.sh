@@ -3,6 +3,8 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+"$REPO_ROOT/scripts/clean_aoi_reports.sh"
+
 AOI_PATH_DEFAULT="${REPO_ROOT}/aoi_json_examples/estonia_testland1.geojson"
 EVIDENCE_ROOT_DEFAULT="${REPO_ROOT}/out/example_evidence"
 OUT_DIR_DEFAULT="${REPO_ROOT}/out/site_bundle/aoi_reports"
@@ -172,8 +174,8 @@ from pathlib import Path
 report_path = Path(sys.argv[1])
 
 try:
-    from eudr_dmi_gil.reports.validate import validate_aoi_report_v1_file
-    validate_aoi_report_v1_file(report_path)
+    from eudr_dmi_gil.reports.validate import validate_aoi_report_file
+    validate_aoi_report_file(report_path)
     print("OK: schema validation passed")
 except Exception as exc:  # noqa: BLE001
     # Fallback to a minimal required-keys check if schema validation is unavailable.

@@ -5,6 +5,8 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
+"$REPO_ROOT/scripts/clean_aoi_reports.sh"
+
 PYTHON="$REPO_ROOT/.venv/bin/python"
 test -x "$PYTHON" || { echo "ERROR: missing venv python at $PYTHON" >&2; exit 2; }
 
@@ -113,8 +115,8 @@ from pathlib import Path
 report_path = Path(sys.argv[1])
 
 try:
-    from eudr_dmi_gil.reports.validate import validate_aoi_report_v1_file
-    validate_aoi_report_v1_file(report_path)
+    from eudr_dmi_gil.reports.validate import validate_aoi_report_file
+    validate_aoi_report_file(report_path)
     print("OK: schema validation passed")
 except Exception as exc:  # noqa: BLE001
     try:

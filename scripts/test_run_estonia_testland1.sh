@@ -2,6 +2,8 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+"$REPO_ROOT/scripts/clean_aoi_reports.sh"
 INPUT_GEOJSON="$REPO_ROOT/aoi_json_examples/estonia_testland1.geojson"
 EVIDENCE_ROOT="$REPO_ROOT/audit/evidence"
 OUTPUT_ROOT="$REPO_ROOT/out/site_bundle/aoi_reports"
@@ -29,9 +31,9 @@ python -m eudr_dmi_gil.reports.cli \
 
 python scripts/export_aoi_reports_staging.py
 
-REPORT_JSON="$BUNDLE_DIR/reports/aoi_report_v1/${AOI_ID}.json"
-REPORT_HTML="$BUNDLE_DIR/reports/aoi_report_v1/${AOI_ID}.html"
-METRICS_CSV="$BUNDLE_DIR/reports/aoi_report_v1/${AOI_ID}/metrics.csv"
+REPORT_JSON="$BUNDLE_DIR/reports/aoi_report_v2/${AOI_ID}.json"
+REPORT_HTML="$BUNDLE_DIR/reports/aoi_report_v2/${AOI_ID}.html"
+METRICS_CSV="$BUNDLE_DIR/reports/aoi_report_v2/${AOI_ID}/metrics.csv"
 MANIFEST_JSON="$BUNDLE_DIR/manifest.json"
 INPUT_COPY="$BUNDLE_DIR/inputs/aoi.geojson"
 

@@ -49,7 +49,9 @@ def _copy_bundle_into_site_root(
 
 
 def _find_aoi_report_html_paths(bundle_root: Path) -> list[Path]:
-    p = bundle_root / "reports" / "aoi_report_v1"
+    p = bundle_root / "reports" / "aoi_report_v2"
+    if not p.exists():
+        p = bundle_root / "reports" / "aoi_report_v1"
     if not p.exists():
         return []
     return sorted(p.glob("*.html"), key=lambda x: x.as_posix())

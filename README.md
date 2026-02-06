@@ -123,6 +123,16 @@ Notes:
 - Override the Hansen URL template with `EUDR_DMI_HANSEN_URL_TEMPLATE`.
 - Outputs are written under `out/site_bundle/aoi_reports` and evidence under `.tmp/evidence_example`.
 
+## AOI report regeneration contract
+
+All AOI report generation must be preceded by the deterministic cleanup step:
+
+```sh
+scripts/clean_aoi_reports.sh
+```
+
+This script removes only derived AOI report outputs and is required before any regeneration to avoid stale artifacts.
+
 ### Use a different AOI GeoJSON (custom input)
 
 ```sh

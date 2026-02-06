@@ -113,9 +113,43 @@ def _render_report_html(report: dict[str, Any], *, rel_artifacts: list[str]) -> 
     bundle_id = report.get("bundle_id", "(unknown)")
     generated = report.get("generated_at_utc", "(unknown)")
 
-    links = "\n".join(
-        f'<li><a href="{path}">{path}</a></li>' for path in rel_artifacts
-    )
+    def _link(label: str, relpath: str) -> str:
+        return (
+            f'<li><a href="{relpath}">{label}</a> '
+            f'<span class="muted">({relpath})</span></li>'
+        )
+
+    links: list[str] = []
+    for relpath in rel_artifacts:
+        if relpath.endswith(f"reports/aoi_report_v2/{aoi_id}.html"):
+            links.append(_link("Rendered AOI report (HTML)", relpath))
+        if relpath.endswith(f"reports/aoi_report_v2/{aoi_id}.json"):
+            links.append(_link("AOI report JSON", relpath))
+        if relpath.endswith(f"reports/aoi_report_v2/{aoi_id}/metrics.csv"):
+            links.append(_link("Metrics CSV", relpath))
+        if relpath.endswith("inputs/aoi.geojson") or relpath.endswith("inputs/aoi.wkt"):
+            links.append(_link("AOI geometry", relpath))
+
+    for dep in report.get("external_dependencies", []) or []:
+        if not isinstance(dep, dict):
+            continue
+        tiles_manifest = dep.get("tiles_manifest", {}).get("relpath")
+        if isinstance(tiles_manifest, str):
+            links.append(_link("Hansen tiles manifest", tiles_manifest))
+
+    for output in (report.get("computed_outputs") or {}).values():
+        if not isinstance(output, dict):
+            continue
+        tiles_ref = output.get("tiles_manifest_ref", {})
+        if isinstance(tiles_ref, dict):
+            relpath = tiles_ref.get("relpath")
+            if isinstance(relpath, str):
+                links.append(_link("Tiles manifest (computed)", relpath))
+
+    if not links:
+        links = ["<li>(none)</li>"]
+
+    links_html = "\n".join(links)
 
     return f"""<!doctype html>
 <html lang=\"en\">
@@ -167,7 +201,7 @@ def _render_report_html(report: dict[str, Any], *, rel_artifacts: list[str]) -> 
       <div class=\"card\">
         <h2>Artifacts</h2>
         <ul>
-          {links or '<li>(none)</li>'}
+          {links_html}
         </ul>
       </div>
     </div>
@@ -182,7 +216,9 @@ def export_aoi_reports(*, evidence_root: Path, output_root: Path) -> None:
         shutil.rmtree(output_root)
     output_root.mkdir(parents=True, exist_ok=True)
 
-    report_jsons = sorted(evidence_root.rglob("reports/aoi_report_v1/*.json"))
+    report_jsons = sorted(evidence_root.rglob("reports/aoi_report_v2/*.json"))
+    if not report_jsons:
+      report_jsons = sorted(evidence_root.rglob("reports/aoi_report_v1/*.json"))
 
     if len(report_jsons) != 1:
         raise SystemExit(
@@ -192,8 +228,9 @@ def export_aoi_reports(*, evidence_root: Path, output_root: Path) -> None:
     report_json = report_jsons[0]
     report = _load_json(report_json)
 
-    # report_json is expected at: <bundle_root>/reports/aoi_report_v1/<aoi_id>.json
-    bundle_root = report_json.parent.parent.parent
+    # report_json is expected at: <bundle_root>/reports/aoi_report_v*/<aoi_id>.json
+    report_root = report_json.parent
+    bundle_root = report_root.parent.parent
     run_dir = output_root / "runs" / EXAMPLE_RUN_ID
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -254,6 +291,18 @@ def export_aoi_reports(*, evidence_root: Path, output_root: Path) -> None:
     report_html_out.write_text(
         _render_report_html(report, rel_artifacts=rel_artifacts), encoding="utf-8"
     )
+
+    # Include rendered report HTML/JSON and metrics.csv if present
+    rendered_html = report_root / f"{report.get('aoi_id')}.html"
+    rendered_json = report_root / f"{report.get('aoi_id')}.json"
+    metrics_csv = report_root / report.get("aoi_id", "") / "metrics.csv"
+    for src in [rendered_html, rendered_json, metrics_csv]:
+      if not src.exists():
+        continue
+      dest = run_dir / src.relative_to(bundle_root)
+      dest.parent.mkdir(parents=True, exist_ok=True)
+      shutil.copy2(src, dest)
+      _add_relpath(dest.relative_to(run_dir).as_posix())
 
     summary_present = (run_dir / "summary.json").is_file()
     entry = RunEntry(

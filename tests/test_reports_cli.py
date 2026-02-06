@@ -12,7 +12,7 @@ import numpy as np
 import rasterio
 from rasterio.transform import from_bounds
 
-from eudr_dmi_gil.reports.validate import validate_aoi_report_v1_file
+from eudr_dmi_gil.reports.validate import validate_aoi_report_file
 
 
 def _run_cli(args: list[str], *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -93,9 +93,9 @@ def test_cli_golden_run_creates_bundle(tmp_path: Path) -> None:
 
     assert bundle_dir.exists()
 
-    report_json = bundle_dir / "reports" / "aoi_report_v1" / f"{aoi_id}.json"
-    report_html = bundle_dir / "reports" / "aoi_report_v1" / f"{aoi_id}.html"
-    metrics_csv = bundle_dir / "reports" / "aoi_report_v1" / aoi_id / "metrics.csv"
+    report_json = bundle_dir / "reports" / "aoi_report_v2" / f"{aoi_id}.json"
+    report_html = bundle_dir / "reports" / "aoi_report_v2" / f"{aoi_id}.html"
+    metrics_csv = bundle_dir / "reports" / "aoi_report_v2" / aoi_id / "metrics.csv"
     manifest = bundle_dir / "manifest.json"
     geometry = bundle_dir / "inputs" / "aoi.wkt"
 
@@ -106,7 +106,7 @@ def test_cli_golden_run_creates_bundle(tmp_path: Path) -> None:
     assert geometry.exists()
 
     # Contract validation.
-    validate_aoi_report_v1_file(report_json)
+    validate_aoi_report_file(report_json)
 
     # metrics.csv header and stable row ordering.
     lines = metrics_csv.read_text(encoding="utf-8").splitlines()
@@ -126,7 +126,7 @@ def test_cli_golden_run_creates_bundle(tmp_path: Path) -> None:
     # manifest.json includes metrics.csv
     manifest_obj = json.loads(manifest.read_text(encoding="utf-8"))
     relpaths = [a["relpath"] for a in manifest_obj.get("artifacts", [])]
-    assert f"reports/aoi_report_v1/{aoi_id}/metrics.csv" in relpaths
+    assert f"reports/aoi_report_v2/{aoi_id}/metrics.csv" in relpaths
 
 
 def test_cli_hansen_external_dependencies(tmp_path: Path) -> None:
@@ -194,7 +194,7 @@ def test_cli_hansen_external_dependencies(tmp_path: Path) -> None:
 
     bundle_date = datetime.now(timezone.utc).date().strftime("%Y-%m-%d")
     bundle_dir = evidence_root / bundle_date / bundle_id
-    report_json = bundle_dir / "reports" / "aoi_report_v1" / f"{aoi_id}.json"
+    report_json = bundle_dir / "reports" / "aoi_report_v2" / f"{aoi_id}.json"
     report = json.loads(report_json.read_text(encoding="utf-8"))
 
     deps = report.get("external_dependencies")
