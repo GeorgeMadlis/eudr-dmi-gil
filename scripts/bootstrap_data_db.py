@@ -46,11 +46,12 @@ def default_db_path(data_dir: Path) -> Path:
     return data_dir / DEFAULT_DB_NAME
 
 
-def seed_paths(data_dir: Path) -> tuple[Path, Path, Path]:
+def seed_paths(data_dir: Path) -> tuple[Path, Path, Path, Path]:
     return (
         data_dir / "dataset_catalogue_auto.csv",
         data_dir / "dataset_families_summary.csv",
         data_dir / "dependency_sources.csv",
+        data_dir / "dependency_link_history.csv",
     )
 
 
@@ -156,10 +157,13 @@ def main(argv: list[str] | None = None) -> int:
     (root / data_dir_rel).mkdir(parents=True, exist_ok=True)
     db_path_abs.parent.mkdir(parents=True, exist_ok=True)
 
-    catalogue_csv_rel, families_csv_rel, dependency_csv_rel = seed_paths(data_dir_rel)
+    catalogue_csv_rel, families_csv_rel, dependency_csv_rel, history_csv_rel = seed_paths(
+        data_dir_rel
+    )
     catalogue_csv = resolve_under_repo(catalogue_csv_rel)
     families_csv = resolve_under_repo(families_csv_rel)
     dependency_csv = resolve_under_repo(dependency_csv_rel)
+    history_csv = resolve_under_repo(history_csv_rel)
 
     if not catalogue_csv.exists() or not families_csv.exists():
         missing = []
@@ -191,6 +195,9 @@ def main(argv: list[str] | None = None) -> int:
 
         if dependency_csv.exists():
             import_seed_csv(con, table="dependency_sources", csv_path=dependency_csv)
+
+        if history_csv.exists():
+            import_seed_csv(con, table="dependency_link_history", csv_path=history_csv)
 
         export_csv = None
         if args.export_with_families_csv:

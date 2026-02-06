@@ -11,6 +11,13 @@ Authoritative dependency sources are seeded from
 `data_db/dependency_sources.csv` and exported to `docs/dependencies/sources.*`
 via `scripts/export_dependency_sources.py`.
 
+Validate dependency links (operator/local agent):
+
+```sh
+python scripts/validate_dependency_links.py --fail-on-broken
+python scripts/validate_dependency_links.py --only hansen
+```
+
 ## Compatibility note
 
 Some code paths referenced by the DT are preserved as *compatibility shims* in
