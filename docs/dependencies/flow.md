@@ -31,3 +31,9 @@ python scripts/suggest_dependency_updates.py --promote-best
 - Stable ordering is enforced when writing JSON and CSV outputs.
 - History CSV updates are idempotent (no duplicate rows on re-run).
 - Optional `--no-timestamps` mode omits timestamps for deterministic snapshots.
+
+## Update cadence
+
+- Recommended: run `validate_dependency_links.py` weekly; run `suggest_dependency_updates.py` monthly.
+- If a dependency is time-versioned (e.g., Hansen yearly), set `update_policy=probe_yearly` in `dependency_sources.csv`.
+- Promotion remains explicit via `--promote-best`.
