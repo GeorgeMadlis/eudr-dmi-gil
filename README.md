@@ -102,9 +102,9 @@ Flow (deterministic, human-in-the-loop):
 - [docs/reports/runbook_generate_aoi_report.md](docs/reports/runbook_generate_aoi_report.md)
 - [scripts/migrate_from_private_eudr_dmi/README.md](scripts/migrate_from_private_eudr_dmi/README.md)
 
-## Generate (or overwrite) the example AOI report (GeoJSON → runs/example)
+## Example AOI report (mandatory regression test)
 
-This repo generates the AOI report bundle; the Digital Twin repo publishes it for inspection.
+This repository includes a zero-config, deterministic regression test that runs the full report pipeline end to end.
 
 Default example AOI input:
 - `aoi_json_examples/estonia_testland1.geojson`
@@ -115,22 +115,17 @@ Primary command (overwrites the existing `runs/example` output):
 scripts/run_example_report_clean.sh
 ```
 
-Minimum output artifacts:
-- `out/site_bundle/aoi_reports/runs/example/report.html`
-- `out/site_bundle/aoi_reports/runs/example/aoi_report.json`
-
-This overwrites the existing `example` run each time.
+Notes:
+- This is a mandatory full-stack regression test and must never use placeholder metrics.
+- If `AOI_GEOJSON` is not set, the script uses `aoi_json_examples/estonia_testland1.geojson`.
+- It relies on committed Hansen fixtures under `tests/fixtures/hansen/tiles` and fails fast if they are missing.
+- Outputs are written under `out/site_bundle/aoi_reports` and evidence under `.tmp/evidence_example`.
 
 ### Use a different AOI GeoJSON (custom input)
 
 ```sh
 AOI_GEOJSON="/absolute/path/to/my_aoi.geojson" scripts/run_example_report_clean.sh
 ```
-
-If `AOI_GEOJSON` is not set, the script uses `aoi_json_examples/estonia_testland1.geojson`.
-
-If external datasets are required (e.g., Hansen tiles), configure the dependency/data root as
-described in [docs/dependencies/flow.md](docs/dependencies/flow.md).
 
 Next: publish to DT
 - Set `RUN_ID=example` and `STAGING_DIR=out/site_bundle/aoi_reports`, then run the DT publish script

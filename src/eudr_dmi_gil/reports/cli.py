@@ -330,7 +330,8 @@ def main(argv: list[str] | None = None) -> int:
     write_bytes(geo_path, geo_bytes)
     geo_sha = sha256_bytes(geo_bytes)
 
-    metric_rows = _parse_metric_rows(args.metric, fallback_dummy=args.dummy_metric)
+    fallback_dummy = None if args.enable_hansen_post_2020_loss else args.dummy_metric
+    metric_rows = _parse_metric_rows(args.metric, fallback_dummy=fallback_dummy)
 
     hansen_result = None
     hansen_analysis = None
@@ -723,13 +724,13 @@ class MetricRow:
     notes: str
 
 
-def _parse_metric_rows(raw_metrics: list[str], *, fallback_dummy: str) -> list[MetricRow]:
+def _parse_metric_rows(raw_metrics: list[str], *, fallback_dummy: str | None) -> list[MetricRow]:
     rows: list[MetricRow] = []
 
     if raw_metrics:
         for raw in raw_metrics:
             rows.append(_parse_metric_row(raw))
-    else:
+    elif fallback_dummy is not None:
         # Backwards-compat scaffolding.
         name, value, unit = _parse_dummy_metric(fallback_dummy)
         rows.append(MetricRow(variable=name, value=value, unit=unit, source="", notes=""))

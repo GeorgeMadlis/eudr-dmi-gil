@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# This script is a mandatory full-stack regression test.
+# It must run without configuration and must never use placeholders.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -48,7 +50,7 @@ export EUDR_DMI_EVIDENCE_ROOT="$EVIDENCE_ROOT"
 export EUDR_DMI_AOI_STAGING_DIR="$OUTPUT_ROOT"
 if [[ ! -d "$HANSEN_TILE_DIR" ]]; then
   echo "ERROR: missing Hansen tiles dir: $HANSEN_TILE_DIR" >&2
-  echo "Set EUDR_DMI_HANSEN_TILE_DIR (or configure data/external Hansen tiles) before running." >&2
+  echo "Repo checkout is missing committed fixtures at tests/fixtures/hansen/tiles." >&2
   exit 2
 fi
 
@@ -59,9 +61,7 @@ export EUDR_DMI_HANSEN_TILE_DIR="$HANSEN_TILE_DIR"
   --aoi-geojson "$AOI_PATH" \
   --bundle-id "$RUN_ID" \
   --out-format both \
-  --enable-hansen-post-2020-loss \
-  --metric area_ha=12.34:ha:example:deterministic \
-  --metric forest_cover_fraction=0.56:fraction:example:deterministic
+  --enable-hansen-post-2020-loss
 
 "$PYTHON" scripts/export_aoi_reports_staging.py
 
