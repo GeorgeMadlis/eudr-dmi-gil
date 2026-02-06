@@ -114,6 +114,8 @@ def write_sources_md(path: Path, *, sources: list[dict[str, str]], server_audit_
 
     md = """# Dependency Sources Registry
 
+_This file is generated from data_db/dependency_sources.csv; do not edit by hand._
+
 ## Role in the ecosystem
 
 This repository is the authoritative implementation for dependency provenance. The Digital Twin repository is the public, non-authoritative portal for inspection and governance.

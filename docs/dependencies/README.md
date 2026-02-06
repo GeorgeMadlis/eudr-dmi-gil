@@ -11,6 +11,8 @@ Authoritative dependency sources are seeded from
 `data_db/dependency_sources.csv` and exported to `docs/dependencies/sources.*`
 via `scripts/export_dependency_sources.py`.
 
+See: [docs/dependencies/flow.md](flow.md) for the full discovery → validation → promotion flow.
+
 Validate dependency links (operator/local agent):
 
 ```sh

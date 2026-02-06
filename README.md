@@ -94,6 +94,7 @@ Flow (deterministic, human-in-the-loop):
 - [docs/architecture/decision_records/0001-report-pipeline-architecture.md](docs/architecture/decision_records/0001-report-pipeline-architecture.md)
 - [docs/dependencies/README.md](docs/dependencies/README.md)
 - [docs/dependencies/sources.md](docs/dependencies/sources.md)
+- [docs/dependencies/flow.md](docs/dependencies/flow.md)
 - [docs/operations/environment_setup.md](docs/operations/environment_setup.md)
 - [docs/operations/minio_setup.md](docs/operations/minio_setup.md)
 - [docs/operations/migration_runbook.md](docs/operations/migration_runbook.md)
