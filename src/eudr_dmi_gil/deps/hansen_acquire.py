@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -35,7 +36,12 @@ def resolve_tile_dir(tile_id: str) -> Path:
 
 
 def _format_url(template: str, *, tile_id: str, layer: str) -> str:
-    return template.format(layer=layer, tile_id=tile_id)
+    url_tile_id = tile_id
+    m = re.fullmatch(r"([NS])(\d{2})_([EW])(\d{3})", tile_id)
+    if m:
+        lat_h, lat_v, lon_h, lon_v = m.groups()
+        url_tile_id = f"{lat_v}{lat_h}_{lon_v}{lon_h}"
+    return template.format(layer=layer, tile_id=tile_id, url_tile_id=url_tile_id)
 
 
 def _download_to_path(url: str, dest_path: Path) -> None:

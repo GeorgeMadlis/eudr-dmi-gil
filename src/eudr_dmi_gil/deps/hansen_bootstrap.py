@@ -20,7 +20,7 @@ from . import minio_cache
 
 DEFAULT_HANSEN_URL_TEMPLATE = (
     "https://storage.googleapis.com/earthenginepartners-hansen/"
-    "GFC-2024-v1.12/Hansen_GFC-2024-v1.12_{layer}_{tile_id}.tif"
+    "GFC-2024-v1.12/Hansen_GFC-2024-v1.12_{layer}_{url_tile_id}.tif"
 )
 
 

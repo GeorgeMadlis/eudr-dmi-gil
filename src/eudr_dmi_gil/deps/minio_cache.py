@@ -22,7 +22,9 @@ def _client_from_env() -> Minio:
 
 
 def ensure_bucket(endpoint: str, access_key: str, secret_key: str, bucket: str) -> None:
-    client = Minio(endpoint, access_key=access_key, secret_key=secret_key, secure=True)
+    secure_env = os.environ.get("MINIO_SECURE", "true").strip().lower()
+    secure = secure_env not in {"0", "false", "no"}
+    client = Minio(endpoint, access_key=access_key, secret_key=secret_key, secure=secure)
     if not client.bucket_exists(bucket):
         client.make_bucket(bucket)
 

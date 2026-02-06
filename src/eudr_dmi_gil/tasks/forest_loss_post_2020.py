@@ -343,7 +343,7 @@ def load_hansen_config(
                     download=download,
                 )
             )
-        tile_source = os.environ.get("EUDR_DMI_HANSEN_TILE_SOURCE", "external")
+        tile_source = os.environ.get("EUDR_DMI_HANSEN_TILE_SOURCE", "local")
     else:
         tile_source = os.environ.get("EUDR_DMI_HANSEN_TILE_SOURCE", "local")
 
