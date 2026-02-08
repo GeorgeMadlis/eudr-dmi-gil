@@ -37,6 +37,8 @@ def run_forest_loss_post_2020(
     config: HansenConfig,
     aoi_id: str,
     run_id: str,
+    zone_geom_wgs84: dict[str, Any] | None = None,
+    parcel_ids: list[str] | None = None,
 ) -> ForestLossAnalysisResult:
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -44,6 +46,8 @@ def run_forest_loss_post_2020(
         aoi_geojson_path=aoi_geojson_path,
         output_dir=output_dir,
         config=config,
+        zone_geom_wgs84=zone_geom_wgs84,
+        parcel_ids=parcel_ids,
     )
 
     tiles_manifest_path = output_dir / "forest_loss_post_2020_tiles.json"

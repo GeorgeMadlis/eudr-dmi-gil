@@ -412,6 +412,40 @@ def main(argv: list[str] | None = None) -> int:
         )
         metric_rows = sorted(metric_rows, key=lambda r: r.variable)
 
+    maaamet_top10_result = None
+    maaamet_fields_used: list[str] | None = None
+    maaamet_parcels_override = None
+    maaamet_provider = None
+    maaamet_wfs_url = os.environ.get("MAAAMET_WFS_URL")
+    maaamet_wfs_layer = os.environ.get("MAAAMET_WFS_LAYER") or "kataster:ky_kehtiv"
+    if geo_kind == "geojson":
+        from eudr_dmi.methods.maa_amet_crosscheck import MAA_AMET_FOREST_SOURCE
+        from eudr_dmi_gil.analysis.maaamet_validation import (
+            LocalFileMaaAmetProvider,
+            WfsMaaAmetProvider,
+            run_maaamet_top10,
+        )
+
+        if not maaamet_wfs_url:
+            maaamet_wfs_url = MAA_AMET_FOREST_SOURCE.get("url")
+
+        provider = None
+        env_path = os.environ.get("EUDR_DMI_MAAAMET_LOCAL_PATH")
+        if env_path:
+            provider = LocalFileMaaAmetProvider(Path(env_path))
+        elif maaamet_wfs_url:
+            provider = WfsMaaAmetProvider(maaamet_wfs_url, maaamet_wfs_layer)
+
+        maaamet_provider = provider
+        maaamet_top10_result = run_maaamet_top10(
+            aoi_geojson_path=geo_path,
+            output_dir=bdir / "reports" / "aoi_report_v2" / aoi_id / "maaamet",
+            provider=provider,
+        )
+        if maaamet_top10_result is not None:
+            maaamet_fields_used = maaamet_top10_result.fields_used
+            maaamet_parcels_override = maaamet_top10_result.parcels_all
+
     forest_loss_threshold_ha = 0.0
     forest_loss_percent_of_aoi: float | None = None
     forest_loss_status = "na"
@@ -448,6 +482,12 @@ def main(argv: list[str] | None = None) -> int:
             config=hansen_config,
             aoi_id=aoi_id,
             run_id=bundle_id,
+            zone_geom_wgs84=maaamet_top10_result.union_geom
+            if maaamet_top10_result is not None
+            else None,
+            parcel_ids=maaamet_top10_result.parcel_ids
+            if maaamet_top10_result is not None
+            else None,
         )
         hansen_result = hansen_analysis.raw
 
@@ -558,6 +598,15 @@ def main(argv: list[str] | None = None) -> int:
                 "is_placeholder": False,
             }
         }
+        if maaamet_wfs_url:
+            hansen_methodology_block["forest_loss_post_2020"].setdefault(
+                "calculation_run_metadata", {}
+            ).update(
+                {
+                    "maaamet_wfs_url": maaamet_wfs_url,
+                    "maaamet_wfs_layer": maaamet_wfs_layer,
+                }
+            )
 
         hansen_computed_block = {
             "forest_loss_post_2020": {
@@ -927,7 +976,37 @@ def main(argv: list[str] | None = None) -> int:
         },
     }
 
+    if maaamet_top10_result is not None:
+        maaamet_block = report["validation"]["maaamet"]
+        maaamet_block["enabled"] = True
+        maaamet_block["parcel_layer"] = maaamet_wfs_layer
+        maaamet_block["parcel_count"] = len(maaamet_top10_result.parcels_all)
+        maaamet_block["cadastral_forest_ha_sum"] = round(
+            sum(
+                p.forest_area_ha
+                for p in maaamet_top10_result.parcels_all
+                if p.forest_area_ha is not None
+            ),
+            6,
+        )
+        maaamet_block["pixel_forest_ha_sum"] = (
+            hansen_result.current_tree_cover_ha if hansen_result is not None else None
+        )
+        maaamet_block["rel_diff_pct"] = None
+        if maaamet_wfs_url:
+            maaamet_block["notes"] = (
+                f"WFS: {maaamet_wfs_url} layer={maaamet_wfs_layer}"
+            )
+
     artifact_paths: list[Path] = [geo_path]
+    if maaamet_top10_result is not None:
+        artifact_paths.extend(
+            [
+                maaamet_top10_result.geojson_path,
+                maaamet_top10_result.csv_path,
+                maaamet_top10_result.inventory_path,
+            ]
+        )
     if hansen_result is not None and hansen_analysis is not None:
         if forest_metrics_block is not None:
             report["forest_metrics"] = forest_metrics_block
@@ -967,6 +1046,7 @@ def main(argv: list[str] | None = None) -> int:
                 hansen_analysis.loss_mask_path,
                 hansen_analysis.current_mask_path,
                 hansen_analysis.tiles_manifest_path,
+                hansen_analysis.raw.forest_mask_debug_path,
             ]
         )
 
@@ -1003,6 +1083,10 @@ def main(argv: list[str] | None = None) -> int:
             aoi_geojson_path=geo_path,
             output_dir=maaamet_dir,
             computed_forest_area_ha=computed_current_forest,
+            provider=maaamet_provider,
+            parcels_override=maaamet_parcels_override,
+            fields_used_override=maaamet_fields_used,
+            top10_result=maaamet_top10_result,
         )
         crosscheck_block = {
             "source": "maaamet",
@@ -1074,10 +1158,18 @@ def main(argv: list[str] | None = None) -> int:
             return "hansen_tiles_manifest"
         if relpath.endswith("forest_loss_post_2020_summary.json"):
             return "forest_loss_summary"
+        if relpath.endswith("forest_mask_debug.json"):
+            return "forest_mask_debug"
         if relpath.endswith("maaamet_forest_area_crosscheck.csv"):
             return "maaamet_crosscheck_csv"
         if relpath.endswith("maaamet_forest_area_crosscheck_summary.json"):
             return "maaamet_crosscheck_summary"
+        if relpath.endswith("maaamet_top10_parcels.geojson"):
+            return "maaamet_top10_geojson"
+        if relpath.endswith("maaamet_top10_parcels.csv"):
+            return "maaamet_top10_csv"
+        if relpath.endswith("maaamet_fields_inventory.json"):
+            return "maaamet_fields_inventory"
         return None
 
     # Populate evidence_artifacts in report JSON (exclude manifest to avoid circularity).

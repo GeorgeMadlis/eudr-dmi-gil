@@ -3,14 +3,18 @@ from __future__ import annotations
 import csv
 import json
 import os
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
 from pyproj import Geod
-from shapely.geometry import shape
+from shapely.geometry import shape, mapping
+from shapely.ops import unary_union
 
 from eudr_dmi_gil.reports.determinism import write_json
+from eudr_dmi.methods.maa_amet_crosscheck import MAA_AMET_FOREST_SOURCE
 
 
 @dataclass(frozen=True)
@@ -19,6 +23,20 @@ class ParcelRecord:
     forest_area_ha: float | None
     reference_source: str
     reference_method: str
+
+
+@dataclass(frozen=True)
+class ParcelFeature:
+    parcel_id: str
+    forest_area_ha: float | None
+    reference_source: str
+    reference_method: str
+    properties: dict[str, Any]
+    geometry: dict[str, Any] | None
+    pindala_m2: float | None
+    geodesic_area_ha: float | None
+    fields_considered: list[str]
+    forest_area_key_used: str | None
 
 
 @dataclass(frozen=True)
@@ -34,11 +52,31 @@ class MaaAmetCrosscheckResult:
     diff_pct: float | None
     csv_path: Path
     summary_path: Path
+    top10_geojson_path: Path | None = None
+    top10_csv_path: Path | None = None
+    fields_inventory_path: Path | None = None
+    parcel_ids: list[str] | None = None
+
+
+@dataclass(frozen=True)
+class MaaAmetTop10Result:
+    parcels: list[ParcelFeature]
+    parcels_all: list[ParcelRecord]
+    parcel_ids: list[str]
+    union_geom: dict[str, Any] | None
+    fields_used: list[str]
+    fields_inventory: dict[str, Any]
+    geojson_path: Path
+    csv_path: Path
+    inventory_path: Path
 
 
 class MaaAmetProvider:
     def fetch_parcels(self, *, aoi_geojson_path: Path) -> list[ParcelRecord]:
         raise NotImplementedError
+
+    def fetch_parcel_features(self, *, aoi_geojson_path: Path) -> list[ParcelFeature]:
+        return []
 
 
 class LocalFileMaaAmetProvider(MaaAmetProvider):
@@ -75,11 +113,252 @@ class LocalFileMaaAmetProvider(MaaAmetProvider):
             return rows
         return []
 
+    def fetch_parcel_features(self, *, aoi_geojson_path: Path) -> list[ParcelFeature]:
+        if not self._path.exists() or self._path.suffix.lower() != ".json":
+            return []
+        data = json.loads(self._path.read_text(encoding="utf-8"))
+        aoi_geom = _load_aoi_shape(aoi_geojson_path)
+        return _analyze_parcels_from_geojson(data, aoi_geom)
+
+
+class WfsMaaAmetProvider(MaaAmetProvider):
+    def __init__(self, url: str, layer: str) -> None:
+        self._url = url
+        self._layer = layer
+
+    def fetch_parcels(self, *, aoi_geojson_path: Path) -> list[ParcelRecord]:
+        features = self.fetch_parcel_features(aoi_geojson_path=aoi_geojson_path)
+        return [
+            ParcelRecord(
+                parcel_id=f.parcel_id,
+                forest_area_ha=f.forest_area_ha,
+                reference_source=f.reference_source,
+                reference_method=f.reference_method,
+            )
+            for f in features
+        ]
+
+    def fetch_parcel_features(self, *, aoi_geojson_path: Path) -> list[ParcelFeature]:
+        aoi_geom = _load_aoi_shape(aoi_geojson_path)
+        minx, miny, maxx, maxy = aoi_geom.bounds
+        params = {
+            "service": "WFS",
+            "request": "GetFeature",
+            "version": "2.0.0",
+            "typeName": self._layer,
+            "outputFormat": "application/json",
+            "srsName": "EPSG:4326",
+            "bbox": f"{minx},{miny},{maxx},{maxy},EPSG:4326",
+        }
+        url = f"{self._url}?{urllib.parse.urlencode(params)}"
+        with urllib.request.urlopen(url) as resp:  # noqa: S310
+            payload = resp.read().decode("utf-8")
+        data = json.loads(payload)
+        return _analyze_parcels_from_geojson(data, aoi_geom)
+
 
 def _geodesic_area_ha(geom: dict[str, Any]) -> float:
     geod = Geod(ellps="WGS84")
     area_m2, _ = geod.geometry_area_perimeter(shape(geom))
     return abs(float(area_m2)) / 10_000.0
+
+
+def _load_aoi_shape(aoi_geojson_path: Path):
+    data = json.loads(aoi_geojson_path.read_text(encoding="utf-8"))
+    if data.get("type") == "FeatureCollection":
+        geometries = [shape(feat["geometry"]) for feat in data.get("features", [])]
+        if not geometries:
+            raise ValueError("AOI GeoJSON FeatureCollection has no features")
+        return unary_union(geometries)
+    if data.get("type") == "Feature":
+        return shape(data["geometry"])
+    if "type" in data:
+        return shape(data)
+    raise ValueError("Unsupported AOI GeoJSON")
+
+
+def _to_float(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _forest_related_keys(props: dict[str, Any]) -> list[str]:
+    base = {"mets", "mets_ha", "pindala", "haritav", "rohumaa", "metsatyyp", "siht1"}
+    keys = set()
+    for key in props.keys():
+        key_lower = str(key).lower()
+        if key_lower in base:
+            keys.add(str(key))
+            continue
+        if "mets" in key_lower or "forest" in key_lower:
+            keys.add(str(key))
+    return sorted(keys)
+
+
+def _analyze_parcel_feature(
+    feature: dict[str, Any],
+    *,
+    aoi_geom,
+    index: int,
+) -> ParcelFeature | None:
+    geom = feature.get("geometry")
+    if not geom:
+        return None
+    parcel_geom = shape(geom)
+    if not parcel_geom.intersects(aoi_geom):
+        return None
+    props = dict(feature.get("properties") or {})
+    parcel_id = str(
+        props.get("parcel_id")
+        or props.get("katastritunnus")
+        or props.get("tunnus")
+        or props.get("id")
+        or f"parcel-{index}"
+    )
+
+    fields_considered = _forest_related_keys(props)
+    mets_value = _to_float(props.get("mets"))
+    mets_ha_value = _to_float(props.get("mets_ha"))
+    forest_area_value = _to_float(props.get("forest_area_ha"))
+
+    forest_area_ha: float | None = None
+    forest_area_key_used: str | None = None
+    reference_source = "missing"
+    reference_method = "missing"
+
+    if mets_value is not None:
+        forest_area_ha = mets_value / 10_000.0
+        forest_area_key_used = "mets"
+        reference_source = "attribute:mets"
+        reference_method = "reported_m2"
+    elif mets_ha_value is not None:
+        forest_area_ha = mets_ha_value
+        forest_area_key_used = "mets_ha"
+        reference_source = "attribute:mets_ha"
+        reference_method = "reported_ha"
+    elif forest_area_value is not None:
+        forest_area_ha = forest_area_value
+        forest_area_key_used = "forest_area_ha"
+        reference_source = "attribute:forest_area_ha"
+        reference_method = "reported_ha"
+    else:
+        for key in fields_considered:
+            if "ha" not in key.lower():
+                continue
+            candidate = _to_float(props.get(key))
+            if candidate is None:
+                continue
+            forest_area_ha = candidate
+            forest_area_key_used = str(key)
+            reference_source = f"attribute:{key}"
+            reference_method = "reported_ha"
+            break
+
+    geodesic_area_ha = _geodesic_area_ha(geom) if geom else None
+    if forest_area_ha is None:
+        if geodesic_area_ha is not None:
+            forest_area_ha = geodesic_area_ha
+            forest_area_key_used = None
+            reference_source = "geometry"
+            reference_method = "geodesic_wgs84_pyproj"
+
+    pindala_m2 = _to_float(props.get("pindala"))
+
+    return ParcelFeature(
+        parcel_id=parcel_id,
+        forest_area_ha=None if forest_area_ha is None else round(forest_area_ha, 6),
+        reference_source=reference_source,
+        reference_method=reference_method,
+        properties=props,
+        geometry=geom,
+        pindala_m2=None if pindala_m2 is None else round(pindala_m2, 6),
+        geodesic_area_ha=None if geodesic_area_ha is None else round(geodesic_area_ha, 6),
+        fields_considered=fields_considered,
+        forest_area_key_used=forest_area_key_used,
+    )
+
+
+def _analyze_parcels_from_geojson(data: Any, aoi_geom) -> list[ParcelFeature]:
+    if not isinstance(data, dict) or data.get("type") != "FeatureCollection":
+        return []
+    parcels: list[ParcelFeature] = []
+    for idx, feat in enumerate(data.get("features", []), start=1):
+        if not isinstance(feat, dict):
+            continue
+        parcel = _analyze_parcel_feature(feat, aoi_geom=aoi_geom, index=idx)
+        if parcel is not None:
+            parcels.append(parcel)
+    return parcels
+
+
+def _select_top10(parcels: list[ParcelFeature]) -> list[ParcelFeature]:
+    def sort_key(parcel: ParcelFeature) -> tuple[float, float, str]:
+        forest_area = parcel.forest_area_ha or 0.0
+        pindala = parcel.pindala_m2 or 0.0
+        geo_area = (parcel.geodesic_area_ha or 0.0) * 10_000.0
+        tie = pindala if pindala > 0 else geo_area
+        return (-forest_area, -tie, parcel.parcel_id)
+
+    return sorted(parcels, key=sort_key)[:10]
+
+
+def _write_top10_geojson(path: Path, parcels: list[ParcelFeature], keys: list[str]) -> None:
+    features: list[dict[str, Any]] = []
+    for parcel in parcels:
+        props = {
+            "parcel_id": parcel.parcel_id,
+            "forest_area_ha": parcel.forest_area_ha,
+        }
+        for key in keys:
+            if key in parcel.properties:
+                props[key] = parcel.properties.get(key)
+        features.append(
+            {
+                "type": "Feature",
+                "properties": props,
+                "geometry": parcel.geometry,
+            }
+        )
+    write_json(path, {"type": "FeatureCollection", "features": features})
+
+
+def _write_top10_csv(path: Path, parcels: list[ParcelFeature], keys: list[str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    headers = ["parcel_id", "forest_area_ha", "pindala_m2", "geodesic_area_ha"] + keys
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=headers)
+        writer.writeheader()
+        for parcel in parcels:
+            row = {
+                "parcel_id": parcel.parcel_id,
+                "forest_area_ha": parcel.forest_area_ha,
+                "pindala_m2": parcel.pindala_m2,
+                "geodesic_area_ha": parcel.geodesic_area_ha,
+            }
+            for key in keys:
+                row[key] = parcel.properties.get(key)
+            writer.writerow(row)
+
+
+def _build_fields_inventory(parcels: list[ParcelFeature]) -> dict[str, Any]:
+    key_counts: dict[str, int] = {}
+    used_counts: dict[str, int] = {}
+    for parcel in parcels:
+        for key in parcel.fields_considered:
+            key_counts[key] = key_counts.get(key, 0) + 1
+        if parcel.forest_area_key_used:
+            used_counts[parcel.forest_area_key_used] = used_counts.get(parcel.forest_area_key_used, 0) + 1
+        elif parcel.reference_source == "geometry":
+            used_counts["geometry"] = used_counts.get("geometry", 0) + 1
+    return {
+        "keys_seen": {k: key_counts[k] for k in sorted(key_counts)},
+        "forest_area_key_used": {k: used_counts[k] for k in sorted(used_counts)},
+        "candidate_keys": sorted(key_counts),
+    }
 
 
 def _parcels_from_json(data: Any) -> list[ParcelRecord]:
@@ -168,6 +447,99 @@ def _write_csv(path: Path, rows: Iterable[dict[str, Any]]) -> None:
             writer.writerow({h: row.get(h) for h in headers})
 
 
+def _build_fields_used(parcels: list[ParcelFeature]) -> list[str]:
+    keys = set()
+    used = set()
+    for parcel in parcels:
+        keys.update(parcel.fields_considered)
+        if parcel.forest_area_key_used:
+            used.add(parcel.forest_area_key_used)
+        elif parcel.reference_source == "geometry":
+            used.add("geometry")
+    fields_used = sorted(keys)
+    if used:
+        fields_used.append(f"forest_area_key_used:{','.join(sorted(used))}")
+    return fields_used
+
+
+def run_maaamet_top10(
+    *,
+    aoi_geojson_path: Path,
+    output_dir: Path,
+    provider: MaaAmetProvider | None = None,
+) -> MaaAmetTop10Result | None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if provider is None:
+        env_path = os.environ.get("EUDR_DMI_MAAAMET_LOCAL_PATH")
+        if env_path:
+            provider = LocalFileMaaAmetProvider(Path(env_path))
+        else:
+            wfs_url = os.environ.get("MAAAMET_WFS_URL") or MAA_AMET_FOREST_SOURCE.get("url", "")
+            wfs_layer = os.environ.get("MAAAMET_WFS_LAYER") or "kataster:ky_kehtiv"
+            if wfs_url:
+                provider = WfsMaaAmetProvider(wfs_url, wfs_layer)
+
+    if provider is None:
+        return None
+
+    parcels = provider.fetch_parcel_features(aoi_geojson_path=aoi_geojson_path)
+    if not parcels:
+        empty_geojson_path = output_dir / "maaamet_top10_parcels.geojson"
+        empty_csv_path = output_dir / "maaamet_top10_parcels.csv"
+        empty_inventory_path = output_dir / "maaamet_fields_inventory.json"
+        write_json(empty_geojson_path, {"type": "FeatureCollection", "features": []})
+        _write_top10_csv(empty_csv_path, [], [])
+        write_json(empty_inventory_path, {"keys_seen": {}, "forest_area_key_used": {}, "candidate_keys": []})
+        return MaaAmetTop10Result(
+            parcels=[],
+            parcels_all=[],
+            parcel_ids=[],
+            union_geom=None,
+            fields_used=[],
+            fields_inventory={"keys_seen": {}, "forest_area_key_used": {}, "candidate_keys": []},
+            geojson_path=empty_geojson_path,
+            csv_path=empty_csv_path,
+            inventory_path=empty_inventory_path,
+        )
+    parcels_all = [
+        ParcelRecord(
+            parcel_id=p.parcel_id,
+            forest_area_ha=p.forest_area_ha,
+            reference_source=p.reference_source,
+            reference_method=p.reference_method,
+        )
+        for p in parcels
+    ]
+
+    top10 = _select_top10(parcels)
+    inventory = _build_fields_inventory(parcels)
+    keys = inventory.get("candidate_keys", [])
+    geojson_path = output_dir / "maaamet_top10_parcels.geojson"
+    csv_path = output_dir / "maaamet_top10_parcels.csv"
+    inventory_path = output_dir / "maaamet_fields_inventory.json"
+
+    _write_top10_geojson(geojson_path, top10, keys)
+    _write_top10_csv(csv_path, top10, keys)
+    write_json(inventory_path, inventory)
+
+    union_geom = None
+    if top10:
+        union_geom = mapping(unary_union([shape(p.geometry) for p in top10 if p.geometry]))
+
+    return MaaAmetTop10Result(
+        parcels=top10,
+        parcels_all=parcels_all,
+        parcel_ids=[p.parcel_id for p in top10],
+        union_geom=union_geom,
+        fields_used=_build_fields_used(parcels),
+        fields_inventory=inventory,
+        geojson_path=geojson_path,
+        csv_path=csv_path,
+        inventory_path=inventory_path,
+    )
+
+
 def run_maaamet_crosscheck(
     *,
     aoi_geojson_path: Path,
@@ -175,15 +547,25 @@ def run_maaamet_crosscheck(
     computed_forest_area_ha: float | None,
     tolerance_percent: float = 5.0,
     provider: MaaAmetProvider | None = None,
+    parcels_override: list[ParcelRecord] | None = None,
+    fields_used_override: list[str] | None = None,
+    top10_result: MaaAmetTop10Result | None = None,
 ) -> MaaAmetCrosscheckResult:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if provider is None:
         env_path = os.environ.get("EUDR_DMI_MAAAMET_LOCAL_PATH")
         provider = LocalFileMaaAmetProvider(Path(env_path)) if env_path else None
+        if provider is None:
+            wfs_url = os.environ.get("MAAAMET_WFS_URL") or MAA_AMET_FOREST_SOURCE.get("url", "")
+            wfs_layer = os.environ.get("MAAAMET_WFS_LAYER") or "kataster:ky_kehtiv"
+            if wfs_url:
+                provider = WfsMaaAmetProvider(wfs_url, wfs_layer)
 
     parcels: list[ParcelRecord] = []
-    if provider is not None:
+    if parcels_override is not None:
+        parcels = parcels_override
+    elif provider is not None:
         parcels = provider.fetch_parcels(aoi_geojson_path=aoi_geojson_path)
 
     rows = []
@@ -260,7 +642,7 @@ def run_maaamet_crosscheck(
             if computed_forest_area_ha is None
             else round(computed_forest_area_ha, 6)
         },
-        "fields_used": ["forest_area_ha"],
+        "fields_used": fields_used_override or ["forest_area_ha"],
         "comparison": {
             "tolerance_percent": tolerance_percent,
             "diff_pct": None if diff_pct_total is None else round(diff_pct_total, 6),
@@ -276,7 +658,7 @@ def run_maaamet_crosscheck(
         outcome=outcome,
         tolerance_percent=tolerance_percent,
         reason=reason,
-        fields_used=["forest_area_ha"],
+        fields_used=fields_used_override or ["forest_area_ha"],
         reference_source=reference_source,
         reference_method=reference_method,
         reference_value_ha=None if total_maaamet <= 0 else round(total_maaamet, 6),
@@ -286,4 +668,8 @@ def run_maaamet_crosscheck(
         diff_pct=None if diff_pct_total is None else round(diff_pct_total, 6),
         csv_path=csv_path,
         summary_path=summary_path,
+        top10_geojson_path=top10_result.geojson_path if top10_result else None,
+        top10_csv_path=top10_result.csv_path if top10_result else None,
+        fields_inventory_path=top10_result.inventory_path if top10_result else None,
+        parcel_ids=top10_result.parcel_ids if top10_result else None,
     )

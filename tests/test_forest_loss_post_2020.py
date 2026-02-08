@@ -117,3 +117,78 @@ def test_compute_forest_loss_post_2020(tmp_path: Path) -> None:
     assert forest_metrics.forest_end_year_ha == pytest.approx(current_area)
     expected_loss_pct = (loss_area / baseline_area * 100.0) if baseline_area else 0.0
     assert forest_metrics.loss_2021_2024_pct_of_rfm == pytest.approx(expected_loss_pct)
+
+
+def test_top10_parcels_mask_not_empty_or_explained(tmp_path: Path) -> None:
+    tile_dir = tmp_path / "tiles"
+    out_dir = tmp_path / "out"
+
+    bounds = (24.0, 59.0, 24.02, 59.02)
+    width = 2
+    height = 2
+    transform = from_bounds(*bounds, width, height)
+
+    treecover = np.array([[0, 50], [60, 20]], dtype=np.uint8)
+    lossyear = np.array([[0, 0], [0, 0]], dtype=np.uint8)
+
+    _write_test_raster(tile_dir / "treecover2000.tif", treecover, transform, "EPSG:4326")
+    _write_test_raster(tile_dir / "lossyear.tif", lossyear, transform, "EPSG:4326")
+
+    aoi = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {},
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [
+                        [
+                            [bounds[0], bounds[1]],
+                            [bounds[2], bounds[1]],
+                            [bounds[2], bounds[3]],
+                            [bounds[0], bounds[3]],
+                            [bounds[0], bounds[1]],
+                        ]
+                    ],
+                },
+            }
+        ],
+    }
+    aoi_path = tmp_path / "aoi.geojson"
+    aoi_path.write_text(json.dumps(aoi), encoding="utf-8")
+
+    zone_geom = {
+        "type": "Polygon",
+        "coordinates": [
+            [
+                [bounds[0], bounds[1]],
+                [bounds[2], bounds[1]],
+                [bounds[2], bounds[3]],
+                [bounds[0], bounds[3]],
+                [bounds[0], bounds[1]],
+            ]
+        ],
+    }
+
+    result = compute_forest_loss_post_2020(
+        aoi_geojson_path=aoi_path,
+        output_dir=out_dir,
+        config=HansenConfig(
+            tile_dir=tile_dir,
+            canopy_threshold_percent=30,
+            cutoff_year=2020,
+            write_masks=True,
+        ),
+        zone_geom_wgs84=zone_geom,
+        parcel_ids=["p1"],
+    )
+
+    debug = json.loads(result.forest_mask_debug_path.read_text(encoding="utf-8"))
+    mask = json.loads(result.mask_forest_current_path.read_text(encoding="utf-8"))
+    features = mask.get("features", [])
+
+    if debug.get("current_forest_true_pixels", 0) > 0:
+        assert features, "Expected non-empty forest mask when true pixels exist"
+    else:
+        assert debug.get("current_forest_true_pixels", 0) == 0
