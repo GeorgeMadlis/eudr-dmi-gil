@@ -178,6 +178,60 @@ def test_schema_accepts_example_assumption() -> None:
 
 def _inject_hansen_blocks(report: dict) -> None:
     report["metrics"]["pixel_forest_loss_post_2020_ha"] = {"value": 1.23, "unit": "ha"}
+    report["forest_metrics"] = {
+        "canopy_threshold_pct": 30,
+        "reference_forest_mask_year": 2000,
+        "loss_year_code_basis": 2000,
+        "end_year": 2024,
+        "rfm_area_ha": 10.0,
+        "forest_end_year_area_ha": 8.77,
+        "loss_total_2001_2024_ha": 1.23,
+        "loss_2021_2024_ha": 1.23,
+        "loss_2021_2024_pct_of_rfm": 12.3,
+        "method": {
+            "area": "geodesic_pixel_area_wgs84",
+            "zonal": "rasterize_polygon_all_touched",
+            "notes": "area_ha = sum(pixel_area_m2 * mask * zone_mask)/10000",
+        },
+        "inputs": {
+            "hansen_treecover2000": {
+                "source": "hansen_gfc_2024_v1_12",
+                "tile_refs": [
+                    {
+                        "tile_id": "N50_E020",
+                        "layer": "treecover2000",
+                        "local_path": "/tmp/tiles/N50_E020/treecover2000.tif",
+                        "sha256": "0" * 64,
+                        "size_bytes": 123,
+                        "source_url": "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2024-v1.12/Hansen_GFC-2024-v1.12_treecover2000_50N_020E.tif",
+                    }
+                ],
+                "hash": "0" * 64,
+                "tiles_manifest_ref": {
+                    "relpath": "reports/aoi_report_v2/aoi-123/hansen/forest_loss_post_2020_tiles.json",
+                    "sha256": "0" * 64,
+                },
+            },
+            "hansen_lossyear": {
+                "source": "hansen_gfc_2024_v1_12",
+                "tile_refs": [
+                    {
+                        "tile_id": "N50_E020",
+                        "layer": "lossyear",
+                        "local_path": "/tmp/tiles/N50_E020/lossyear.tif",
+                        "sha256": "0" * 64,
+                        "size_bytes": 456,
+                        "source_url": "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2024-v1.12/Hansen_GFC-2024-v1.12_lossyear_50N_020E.tif",
+                    }
+                ],
+                "hash": "0" * 64,
+                "tiles_manifest_ref": {
+                    "relpath": "reports/aoi_report_v2/aoi-123/hansen/forest_loss_post_2020_tiles.json",
+                    "sha256": "0" * 64,
+                },
+            },
+        },
+    }
     report["computed"] = {
         "forest_loss_post_2020": {
             "pixel_initial_tree_cover_ha": 10.0,
@@ -219,19 +273,32 @@ def _inject_hansen_blocks(report: dict) -> None:
             },
         }
     }
-    report["evidence_artifacts"] = [
-        {
-            "relpath": "reports/aoi_report_v2/aoi-123/hansen/forest_loss_post_2020_mask.geojson",
-            "sha256": "0" * 64,
-            "size_bytes": 123,
-        },
-        {
-            "relpath": "reports/aoi_report_v2/aoi-123/hansen/forest_loss_post_2020_tiles.json",
-            "sha256": "0" * 64,
-            "size_bytes": 456,
-            "content_type": "application/json",
-        },
-    ]
+    report.setdefault("evidence_artifacts", [])
+    report["evidence_artifacts"].extend(
+        [
+            {
+                "relpath": "reports/aoi_report_v2/aoi-123/hansen/forest_loss_post_2020_mask.geojson",
+                "sha256": "0" * 64,
+                "size_bytes": 123,
+            },
+            {
+                "relpath": "reports/aoi_report_v2/aoi-123/hansen/forest_current_tree_cover_mask.geojson",
+                "sha256": "0" * 64,
+                "size_bytes": 124,
+            },
+            {
+                "relpath": "reports/aoi_report_v2/aoi-123/hansen/forest_loss_post_2020_summary.json",
+                "sha256": "0" * 64,
+                "size_bytes": 125,
+            },
+            {
+                "relpath": "reports/aoi_report_v2/aoi-123/hansen/forest_loss_post_2020_tiles.json",
+                "sha256": "0" * 64,
+                "size_bytes": 456,
+                "content_type": "application/json",
+            },
+        ]
+    )
 
 
 def test_schema_requires_external_dependencies_for_hansen() -> None:
@@ -266,6 +333,18 @@ def test_schema_accepts_external_dependencies_for_hansen() -> None:
             ],
         }
     ]
+    assert ok["forest_metrics"]["loss_year_code_basis"] == 2000
+    assert (
+        ok["methodology"]["forest_loss_post_2020"]["calculation"]["cutoff_date"]
+        == "2020-12-31"
+    )
+    relpaths = {entry["relpath"] for entry in ok["evidence_artifacts"]}
+    assert {
+        "reports/aoi_report_v2/aoi-123/hansen/forest_loss_post_2020_mask.geojson",
+        "reports/aoi_report_v2/aoi-123/hansen/forest_current_tree_cover_mask.geojson",
+        "reports/aoi_report_v2/aoi-123/hansen/forest_loss_post_2020_summary.json",
+        "reports/aoi_report_v2/aoi-123/hansen/forest_loss_post_2020_tiles.json",
+    }.issubset(relpaths)
     validate_aoi_report(ok)
 
 

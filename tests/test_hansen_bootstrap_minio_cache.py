@@ -58,6 +58,11 @@ def _write_aoi_geojson(path: Path) -> None:
 
 def test_hansen_bootstrap_minio_cache(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("EUDR_DMI_DATA_ROOT", str(tmp_path))
+    monkeypatch.setenv(
+        "EUDR_DMI_HANSEN_URL_TEMPLATE",
+        "https://storage.googleapis.com/earthenginepartners-hansen/"
+        "GFC-2024-v1.12/Hansen_GFC-2024-v1.12_{layer}_{tile_id}.tif",
+    )
     monkeypatch.setenv("MINIO_ENDPOINT", "minio.local")
     monkeypatch.setenv("MINIO_ACCESS_KEY", "access")
     monkeypatch.setenv("MINIO_SECRET_KEY", "secret")
@@ -102,4 +107,3 @@ def test_hansen_bootstrap_minio_cache(monkeypatch: pytest.MonkeyPatch, tmp_path:
     assert any("tiles/N50_E020/lossyear.tif" in key for _, key in calls["put"])
     assert any("tiles/N50_E020/treecover2000.tif" in key for _, key in calls["put"])
     assert any("manifests/test_aoi/tiles_manifest.json" in key for _, key in calls["put"])
-*** End Patch

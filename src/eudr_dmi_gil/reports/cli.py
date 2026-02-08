@@ -81,6 +81,7 @@ def _render_html_summary(report: dict[str, Any], *, html_path: Path, artifact_pa
     summary = report.get("results_summary", {})
     aoi_area = summary.get("aoi_area", {})
     deforestation = summary.get("deforestation_free_post_2020", {})
+    forest_metrics = report.get("forest_metrics", {})
 
     aoi_id = report.get("aoi_id", "(unknown)")
     bundle_id = report.get("bundle_id", "(unknown)")
@@ -148,6 +149,34 @@ def _render_html_summary(report: dict[str, Any], *, html_path: Path, artifact_pa
         )
     deforestation_table = "\n".join(deforestation_rows) if deforestation_rows else row("(none)", "")
 
+    forest_metrics_rows = []
+    if isinstance(forest_metrics, dict) and forest_metrics:
+        method_block = forest_metrics.get("method", {}) if isinstance(forest_metrics.get("method"), dict) else {}
+        loss_recent = forest_metrics.get("loss_2021_2024_ha")
+        loss_recent_pct = forest_metrics.get("loss_2021_2024_pct_of_rfm")
+        forest_end_year_value = forest_metrics.get("forest_end_year_ha")
+        if forest_end_year_value is None:
+            forest_end_year_value = forest_metrics.get("forest_end_year_area_ha")
+        forest_metrics_rows.extend(
+            [
+                row("Tree cover threshold (%)", str(forest_metrics.get("canopy_threshold_pct"))),
+                row("Reference forest mask year", str(forest_metrics.get("reference_forest_mask_year"))),
+                row("RFM area (ha)", str(forest_metrics.get("rfm_area_ha"))),
+                row(
+                    "Loss 2021–2024 (ha)",
+                    f"{loss_recent} ({loss_recent_pct}% of RFM)" if loss_recent is not None else "",
+                ),
+                row(
+                    "Forest end-year area (ha)",
+                    str(forest_end_year_value),
+                ),
+                row("Method summary", str(method_block.get("notes", ""))),
+            ]
+        )
+    forest_metrics_table = (
+        "\n".join(forest_metrics_rows) if forest_metrics_rows else row("(none)", "")
+    )
+
     artifacts_for_links = "\n".join(
         f"<li><a href=\"{_rel_href(html_path, p)}\">{_rel_href(html_path, p)}</a></li>"
         for p in sorted(artifact_paths, key=lambda p: p.as_posix())
@@ -192,6 +221,11 @@ def _render_html_summary(report: dict[str, Any], *, html_path: Path, artifact_pa
     {row('Baseline year', '2000')}
     {row('Cutoff year', str((report.get('parameters', {}).get('forest_loss_post_2020') or {}).get('cutoff_year', '')))}
   </table>
+
+    <h2>Forest area and loss (pixel-based, AOI intersection)</h2>
+    <table>
+        {forest_metrics_table}
+    </table>
 
   <h2>Data sources & provenance</h2>
   <table>
@@ -390,6 +424,9 @@ def main(argv: list[str] | None = None) -> int:
     hansen_acceptance_criteria_block: dict[str, Any] | None = None
     hansen_result_block: dict[str, Any] | None = None
     hansen_external_dependencies: list[dict[str, Any]] | None = None
+    forest_metrics_block: dict[str, Any] | None = None
+    forest_metrics_params_block: dict[str, Any] | None = None
+    forest_metrics_debug_block: dict[str, Any] | None = None
     if args.enable_hansen_post_2020_loss:
         from eudr_dmi_gil.analysis.forest_loss_post_2020 import run_forest_loss_post_2020
         from eudr_dmi_gil.tasks.forest_loss_post_2020 import load_hansen_config
@@ -446,6 +483,48 @@ def main(argv: list[str] | None = None) -> int:
                     unit="ha",
                     source="hansen_gfc",
                     notes="pixel_mask",
+                ),
+                MetricRow(
+                    variable="rfm_area_ha",
+                    value=hansen_analysis.raw.forest_metrics.rfm_area_ha,
+                    unit="ha",
+                    source="hansen_gfc",
+                    notes="rfm_mask",
+                ),
+                MetricRow(
+                    variable="loss_total_ha",
+                    value=hansen_analysis.raw.forest_metrics.loss_total_ha,
+                    unit="ha",
+                    source="hansen_gfc",
+                    notes="rfm_mask & (lossyear > 0)",
+                ),
+                MetricRow(
+                    variable="loss_2021_2024_ha",
+                    value=hansen_analysis.raw.forest_metrics.loss_2021_2024_ha,
+                    unit="ha",
+                    source="hansen_gfc",
+                    notes="rfm_mask & (lossyear in 21..24)",
+                ),
+                MetricRow(
+                    variable="forest_2024_ha",
+                    value=hansen_analysis.raw.forest_metrics.forest_2024_ha,
+                    unit="ha",
+                    source="hansen_gfc",
+                    notes="rfm_mask & (lossyear == 0)",
+                ),
+                MetricRow(
+                    variable="forest_end_year_ha",
+                    value=hansen_analysis.raw.forest_metrics.forest_end_year_ha,
+                    unit="ha",
+                    source="hansen_gfc",
+                    notes="forest_mask_end_year",
+                ),
+                MetricRow(
+                    variable="end_year",
+                    value=hansen_analysis.raw.forest_metrics.end_year,
+                    unit="year",
+                    source="hansen_gfc",
+                    notes="forest_end_year",
                 ),
             ]
         )
@@ -554,6 +633,83 @@ def main(argv: list[str] | None = None) -> int:
             key=lambda item: (item.get("tile_id", ""), item.get("layer", ""), item.get("local_path", "")),
         )
 
+        tiles_manifest_ref = {
+            "relpath": str(hansen_analysis.tiles_manifest_path.relative_to(bdir)).replace("\\", "/"),
+            "sha256": compute_sha256(hansen_analysis.tiles_manifest_path),
+        }
+
+        forest_metrics = hansen_analysis.raw.forest_metrics
+        forest_metrics_params = hansen_analysis.raw.forest_metrics_params
+        forest_metrics_debug = hansen_analysis.raw.forest_metrics_debug
+        tile_refs_treecover = [item for item in tiles_used if item.get("layer") == "treecover2000"]
+        tile_refs_lossyear = [item for item in tiles_used if item.get("layer") == "lossyear"]
+        forest_metrics_block = {
+            "canopy_threshold_pct": forest_metrics.canopy_threshold_pct,
+            "reference_forest_mask_year": forest_metrics.reference_forest_mask_year,
+            "loss_year_code_basis": forest_metrics.loss_year_code_basis,
+            "end_year": forest_metrics.end_year,
+            "rfm_area_ha": forest_metrics.rfm_area_ha,
+            "forest_end_year_area_ha": forest_metrics.forest_end_year_area_ha,
+            "loss_total_2001_2024_ha": forest_metrics.loss_total_2001_2024_ha,
+            "loss_2021_2024_ha": forest_metrics.loss_2021_2024_ha,
+            "loss_2021_2024_pct_of_rfm": forest_metrics.loss_2021_2024_pct_of_rfm,
+            "method": {
+                "area": "geodesic_pixel_area_wgs84",
+                "zonal": "rasterize_polygon_all_touched",
+                "notes": "area_ha = sum(pixel_area_m2 * mask * zone_mask)/10000",
+            },
+            "inputs": {
+                "hansen_treecover2000": {
+                    "source": "hansen_gfc_2024_v1_12",
+                    "tile_refs": tile_refs_treecover,
+                    "hash": tiles_manifest_ref["sha256"],
+                    "tiles_manifest_ref": tiles_manifest_ref,
+                },
+                "hansen_lossyear": {
+                    "source": "hansen_gfc_2024_v1_12",
+                    "tile_refs": tile_refs_lossyear,
+                    "hash": tiles_manifest_ref["sha256"],
+                    "tiles_manifest_ref": tiles_manifest_ref,
+                },
+            },
+        }
+        forest_metrics_params_block = {
+            "canopy_threshold_pct": forest_metrics_params.canopy_threshold_pct,
+            "start_year": forest_metrics_params.start_year,
+            "end_year": forest_metrics_params.end_year,
+            "crs": forest_metrics_params.crs,
+            "area_method": "pipeline_a_raster_zonal_geodesic_wgs84",
+            "lossyear_mapping": "0=no_loss; 21..24=2021..2024 (year=lossyear+2000)",
+            "method": {
+                "area": forest_metrics_params.method_area,
+                "zonal": forest_metrics_params.method_zonal,
+                "notes": forest_metrics_params.method_notes,
+            },
+            "loss_year_code_basis": forest_metrics_params.loss_year_code_basis,
+        }
+        forest_metrics_debug_block = {
+            "raster_shapes": forest_metrics_debug.raster_shapes,
+            "pixel_area_m2": {
+                "min": forest_metrics_debug.pixel_area_m2_min,
+                "max": forest_metrics_debug.pixel_area_m2_max,
+                "mean": forest_metrics_debug.pixel_area_m2_mean,
+            },
+            "mask_true_pixels": {
+                "rfm": forest_metrics_debug.rfm_true_pixels,
+                "loss_21_24": forest_metrics_debug.loss_21_24_true_pixels,
+                "forest_end_year": forest_metrics_debug.forest_end_year_true_pixels,
+            },
+            "areas_ha": {
+                "rfm": forest_metrics_debug.rfm_area_ha,
+                "loss_total_2001_2024": forest_metrics_debug.loss_total_2001_2024_ha,
+                "loss_total": forest_metrics_debug.loss_total_ha,
+                "loss_2021_2024": forest_metrics_debug.loss_2021_2024_ha,
+                "forest_end_year": forest_metrics_debug.forest_end_year_area_ha,
+                "forest_2024": forest_metrics_debug.forest_2024_ha,
+                "forest_end_year_ha": forest_metrics_debug.forest_end_year_ha,
+            },
+        }
+
         hansen_external_dependencies = [
             {
                 "dependency_id": "hansen_gfc_2024_v1_12",
@@ -608,7 +764,22 @@ def main(argv: list[str] | None = None) -> int:
             "cutoff_year": hansen_config.cutoff_year,
             "acceptance_threshold_ha": forest_loss_threshold_ha,
             "pixel_area_method": "geodesic_wgs84_pyproj",
+            "area_method": "pipeline_a_raster_zonal_geodesic_wgs84",
+            "lossyear_mapping": "0=no_loss; 21..24=2021..2024 (year=lossyear+2000)",
+            "mask_definitions": {
+                "rfm_mask": "treecover2000 >= canopy_threshold_percent",
+                "loss_total": "rfm_mask & (lossyear > 0)",
+                "loss_2021_2024": "rfm_mask & (lossyear in 21..24)",
+                "forest_2024": "rfm_mask & (lossyear == 0)",
+            },
         }
+        if forest_metrics is not None:
+            parameters["forest_loss_post_2020"].update(
+                {
+                    "end_year": forest_metrics.end_year,
+                    "forest_end_year_ha": forest_metrics.forest_end_year_ha,
+                }
+            )
 
     results_summary: dict[str, Any] = {
         "aoi_area": {
@@ -672,7 +843,17 @@ def main(argv: list[str] | None = None) -> int:
         },
         "computed": {},
         "computed_outputs": {},
-        "validation": {},
+        "validation": {
+            "maaamet": {
+                "enabled": False,
+                "parcel_layer": "kataster:ky_kehtiv",
+                "parcel_count": None,
+                "cadastral_forest_ha_sum": None,
+                "pixel_forest_ha_sum": None,
+                "rel_diff_pct": None,
+                "notes": "Populate when Maa-amet WFS integration is enabled in pipeline.",
+            }
+        },
         "methodology": {},
         "external_dependencies": [],
         "aoi_id": aoi_id,
@@ -748,6 +929,16 @@ def main(argv: list[str] | None = None) -> int:
 
     artifact_paths: list[Path] = [geo_path]
     if hansen_result is not None and hansen_analysis is not None:
+        if forest_metrics_block is not None:
+            report["forest_metrics"] = forest_metrics_block
+        if forest_metrics_params_block is not None:
+            report.setdefault("extensions", {})["forest_metrics_params"] = (
+                forest_metrics_params_block
+            )
+        if forest_metrics_debug_block is not None:
+            report.setdefault("extensions", {})["forest_metrics_debug"] = (
+                forest_metrics_debug_block
+            )
         if hansen_methodology_block is not None:
             report["methodology"] = hansen_methodology_block
         if hansen_computed_block is not None:

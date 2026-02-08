@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +24,16 @@ from eudr_dmi_gil.deps.hansen_acquire import (
     resolve_hansen_url_template,
 )
 from eudr_dmi_gil.deps.hansen_tiles import hansen_tile_ids_for_bbox, load_aoi_bbox
+from eudr_dmi_gil.geo.forest_area_core import (
+    forest_2024_mask,
+    forest_mask_end_year,
+    loss_2021_2024_mask,
+    loss_total_mask,
+    pixel_area_m2_raster,
+    rfm_mask,
+    rasterize_zone_mask,
+    zonal_area_ha,
+)
 from eudr_dmi_gil.reports.determinism import sha256_file, write_json
 
 
@@ -55,6 +66,58 @@ class ForestLossResult:
     current_tree_cover_ha: float
     mask_forest_loss_post_2020_path: Path
     mask_forest_current_path: Path
+    forest_metrics: "ForestMetrics"
+    forest_metrics_params: "ForestMetricsParams"
+    forest_metrics_debug: "ForestMetricsDebug"
+
+
+@dataclass(frozen=True)
+class ForestMetrics:
+    canopy_threshold_pct: int
+    reference_forest_mask_year: int
+    loss_year_code_basis: int
+    end_year: int
+    rfm_area_ha: float
+    forest_end_year_area_ha: float
+    loss_total_2001_2024_ha: float
+    loss_2021_2024_ha: float
+    loss_2021_2024_pct_of_rfm: float
+    loss_total_ha: float
+    forest_2024_ha: float
+    forest_end_year_ha: float
+
+
+@dataclass(frozen=True)
+class ForestMetricsParams:
+    canopy_threshold_pct: int
+    start_year: int
+    end_year: int
+    crs: str
+    method_area: str
+    method_zonal: str
+    method_notes: str
+    loss_year_code_basis: int
+
+
+@dataclass(frozen=True)
+class ForestMetricsDebug:
+    raster_shapes: list[tuple[int, int]]
+    pixel_area_m2_min: float
+    pixel_area_m2_max: float
+    pixel_area_m2_mean: float
+    rfm_true_pixels: int
+    loss_21_24_true_pixels: int
+    forest_end_year_true_pixels: int
+    rfm_area_ha: float
+    loss_total_2001_2024_ha: float
+    loss_2021_2024_ha: float
+    forest_end_year_area_ha: float
+    loss_total_ha: float
+    forest_2024_ha: float
+    forest_end_year_ha: float
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class TileSource:
@@ -157,6 +220,35 @@ def _mask_raster(dataset: rasterio.io.DatasetReader, geom: dict[str, Any]) -> tu
     return data, transform
 
 
+def _extract_loss_band(dataset: rasterio.io.DatasetReader) -> np.ma.MaskedArray | None:
+    if dataset.count <= 1:
+        return None
+    descriptions = list(dataset.descriptions or [])
+    for idx, desc in enumerate(descriptions, start=1):
+        if desc and "loss" in str(desc).lower():
+            return dataset.read(idx, masked=True)
+    return None
+
+
+def _warn_loss_consistency(lossyear_values: np.ndarray, loss_values: np.ndarray, valid: np.ndarray) -> None:
+    if loss_values.size == 0:
+        return
+    lossyear_positive = lossyear_values > 0
+    loss_positive = loss_values > 0
+    mismatch_lossyear_positive_loss_zero = np.count_nonzero(
+        lossyear_positive & ~loss_positive & valid
+    )
+    mismatch_lossyear_zero_loss_one = np.count_nonzero(
+        (~lossyear_positive) & loss_positive & valid
+    )
+    if mismatch_lossyear_positive_loss_zero or mismatch_lossyear_zero_loss_one:
+        LOGGER.warning(
+            "Loss/losyear mismatch: lossyear>0 & loss==0: %s; lossyear==0 & loss==1: %s",
+            int(mismatch_lossyear_positive_loss_zero),
+            int(mismatch_lossyear_zero_loss_one),
+        )
+
+
 def _pixel_area_ha_projected(transform: Any) -> float:
     return abs(transform.a * transform.e) / 10000.0
 
@@ -221,6 +313,23 @@ def compute_forest_loss_post_2020(
     initial_cover_ha = 0.0
     current_cover_ha = 0.0
 
+    end_year = 2024
+    rfm_area_ha = np.float64(0.0)
+    loss_total_2001_2024_ha = np.float64(0.0)
+    loss_2021_2024_ha = np.float64(0.0)
+    forest_end_year_area_ha = np.float64(0.0)
+    forest_2024_area_ha = np.float64(0.0)
+
+    raster_shapes: list[tuple[int, int]] = []
+    pixel_area_sum = np.float64(0.0)
+    pixel_area_count = 0
+    pixel_area_min: float | None = None
+    pixel_area_max: float | None = None
+    rfm_true_pixels = 0
+    loss_21_24_true_pixels = 0
+    forest_end_year_true_pixels = 0
+    crs_values: list[str] = []
+
     provenance: list[TileProvenance] = []
     loss_features: list[dict[str, Any]] = []
     current_features: list[dict[str, Any]] = []
@@ -240,12 +349,94 @@ def compute_forest_loss_post_2020(
                 loss_band = loss_data[0]
                 valid = (~tree_band.mask) & (~loss_band.mask)
 
+                loss_band_optional = _extract_loss_band(loss_ds)
+                if loss_band_optional is not None:
+                    loss_optional_values = np.ma.filled(loss_band_optional, 0)
+                    _warn_loss_consistency(
+                        np.ma.filled(loss_band, 0),
+                        loss_optional_values,
+                        valid & (~loss_band_optional.mask),
+                    )
+
+                raster_shapes.append((int(tree_band.shape[0]), int(tree_band.shape[1])))
+                if tree_ds.crs:
+                    crs_values.append(tree_ds.crs.to_string())
+
                 tree_values = np.ma.filled(tree_band, 0)
                 loss_values = np.ma.filled(loss_band, 0)
 
-                baseline = valid & (tree_values >= config.canopy_threshold_percent)
+                rfm = rfm_mask(tree_values, config.canopy_threshold_percent)
+                baseline = valid & rfm
                 loss_post_2020 = baseline & (loss_values > cutoff_threshold)
                 current_cover = baseline & (loss_values == 0)
+
+                geom_in_crs = transform_geom("EPSG:4326", tree_ds.crs, geom)
+                zone_mask = rasterize_zone_mask(
+                    geom_in_crs,
+                    out_shape=tree_band.shape,
+                    transform=tree_transform,
+                    all_touched=True,
+                )
+                pixel_area_m2 = pixel_area_m2_raster(
+                    tree_transform,
+                    height=tree_band.shape[0],
+                    width=tree_band.shape[1],
+                    crs=tree_ds.crs,
+                )
+                rfm_zone_mask = rfm & valid
+                loss_total_mask_bool = loss_total_mask(
+                    tree_values,
+                    loss_values,
+                    config.canopy_threshold_percent,
+                ) & valid
+                loss_recent_mask = loss_2021_2024_mask(
+                    tree_values,
+                    loss_values,
+                    config.canopy_threshold_percent,
+                ) & valid
+                forest_2024_mask_bool = forest_2024_mask(
+                    tree_values,
+                    loss_values,
+                    config.canopy_threshold_percent,
+                ) & valid
+                forest_end_mask = forest_mask_end_year(
+                    tree_values,
+                    loss_values,
+                    config.canopy_threshold_percent,
+                    end_year,
+                ) & valid
+
+                zone_valid = zone_mask & valid
+                if np.any(zone_valid):
+                    pixel_vals = pixel_area_m2[zone_valid]
+                    if pixel_vals.size:
+                        vmin = float(np.min(pixel_vals))
+                        vmax = float(np.max(pixel_vals))
+                        vsum = np.sum(pixel_vals, dtype=np.float64)
+                        pixel_area_sum += np.float64(vsum)
+                        pixel_area_count += int(pixel_vals.size)
+                        pixel_area_min = vmin if pixel_area_min is None else min(pixel_area_min, vmin)
+                        pixel_area_max = vmax if pixel_area_max is None else max(pixel_area_max, vmax)
+
+                rfm_true_pixels += int(np.count_nonzero(rfm_zone_mask & zone_mask))
+                loss_21_24_true_pixels += int(np.count_nonzero(loss_recent_mask & zone_mask))
+                forest_end_year_true_pixels += int(
+                    np.count_nonzero(forest_end_mask & zone_mask)
+                )
+
+                rfm_area_ha += np.float64(zonal_area_ha(rfm_zone_mask, pixel_area_m2, zone_mask))
+                loss_total_2001_2024_ha += np.float64(
+                    zonal_area_ha(loss_total_mask_bool, pixel_area_m2, zone_mask)
+                )
+                loss_2021_2024_ha += np.float64(
+                    zonal_area_ha(loss_recent_mask, pixel_area_m2, zone_mask)
+                )
+                forest_end_year_area_ha += np.float64(
+                    zonal_area_ha(forest_end_mask, pixel_area_m2, zone_mask)
+                )
+                forest_2024_area_ha += np.float64(
+                    zonal_area_ha(forest_2024_mask_bool, pixel_area_m2, zone_mask)
+                )
 
                 area_loss = _compute_area_ha(tree_ds, tree_transform, loss_post_2020)
                 area_initial = _compute_area_ha(tree_ds, tree_transform, baseline)
@@ -304,6 +495,55 @@ def compute_forest_loss_post_2020(
         ],
     }
 
+    loss_2021_2024_pct_of_rfm = (
+        float(loss_2021_2024_ha) / float(rfm_area_ha) * 100.0
+        if float(rfm_area_ha) > 0.0
+        else 0.0
+    )
+    forest_metrics = ForestMetrics(
+        canopy_threshold_pct=config.canopy_threshold_percent,
+        reference_forest_mask_year=2000,
+        loss_year_code_basis=2000,
+        end_year=end_year,
+        rfm_area_ha=float(rfm_area_ha),
+        forest_end_year_area_ha=float(forest_end_year_area_ha),
+        loss_total_2001_2024_ha=float(loss_total_2001_2024_ha),
+        loss_2021_2024_ha=float(loss_2021_2024_ha),
+        loss_2021_2024_pct_of_rfm=float(loss_2021_2024_pct_of_rfm),
+        loss_total_ha=float(loss_total_2001_2024_ha),
+        forest_2024_ha=float(forest_2024_area_ha),
+        forest_end_year_ha=float(forest_end_year_area_ha),
+    )
+
+    crs_used = sorted(set([c for c in crs_values if c]))
+    forest_metrics_params = ForestMetricsParams(
+        canopy_threshold_pct=config.canopy_threshold_percent,
+        start_year=2001,
+        end_year=end_year,
+        crs=crs_used[0] if crs_used else "",
+        method_area="geodesic_pixel_area_wgs84",
+        method_zonal="rasterize_polygon_all_touched",
+        method_notes="area_ha = sum(pixel_area_m2 * mask * zone_mask)/10000",
+        loss_year_code_basis=2000,
+    )
+    pixel_area_mean = float(pixel_area_sum) / float(pixel_area_count) if pixel_area_count else 0.0
+    forest_metrics_debug = ForestMetricsDebug(
+        raster_shapes=raster_shapes,
+        pixel_area_m2_min=float(pixel_area_min) if pixel_area_min is not None else 0.0,
+        pixel_area_m2_max=float(pixel_area_max) if pixel_area_max is not None else 0.0,
+        pixel_area_m2_mean=pixel_area_mean,
+        rfm_true_pixels=rfm_true_pixels,
+        loss_21_24_true_pixels=loss_21_24_true_pixels,
+        forest_end_year_true_pixels=forest_end_year_true_pixels,
+        rfm_area_ha=float(rfm_area_ha),
+        loss_total_2001_2024_ha=float(loss_total_2001_2024_ha),
+        loss_2021_2024_ha=float(loss_2021_2024_ha),
+        forest_end_year_area_ha=float(forest_end_year_area_ha),
+        loss_total_ha=float(loss_total_2001_2024_ha),
+        forest_2024_ha=float(forest_2024_area_ha),
+        forest_end_year_ha=float(forest_end_year_area_ha),
+    )
+
     summary_path = output_dir / "forest_loss_post_2020_summary.json"
     write_json(summary_path, summary)
 
@@ -315,6 +555,9 @@ def compute_forest_loss_post_2020(
         current_tree_cover_ha=summary["pixel_current_tree_cover_ha"],
         mask_forest_loss_post_2020_path=loss_mask_path,
         mask_forest_current_path=current_mask_path,
+        forest_metrics=forest_metrics,
+        forest_metrics_params=forest_metrics_params,
+        forest_metrics_debug=forest_metrics_debug,
     )
 
 

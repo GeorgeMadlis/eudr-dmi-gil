@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -63,3 +64,26 @@ def test_estonia_testland1_geojson_smoke(tmp_path: Path) -> None:
     assert metrics_csv.exists()
     assert manifest.exists()
     assert geometry.exists()
+
+    report = json.loads(report_json.read_text(encoding="utf-8"))
+    forest_metrics = report.get("forest_metrics")
+    methodology = report.get("methodology", {})
+    if isinstance(forest_metrics, dict) and forest_metrics:
+        assert forest_metrics.get("loss_year_code_basis") == 2000
+
+    forest_method = methodology.get("forest_loss_post_2020") if isinstance(methodology, dict) else None
+    if isinstance(forest_method, dict):
+        calculation = forest_method.get("calculation", {})
+        assert calculation.get("cutoff_date") == "2020-12-31"
+
+    evidence_artifacts = report.get("evidence_artifacts", [])
+    if isinstance(evidence_artifacts, list) and evidence_artifacts:
+        relpaths = {entry.get("relpath") for entry in evidence_artifacts if isinstance(entry, dict)}
+        required = {
+            f"reports/aoi_report_v2/{aoi_id}/hansen/forest_loss_post_2020_mask.geojson",
+            f"reports/aoi_report_v2/{aoi_id}/hansen/forest_current_tree_cover_mask.geojson",
+            f"reports/aoi_report_v2/{aoi_id}/hansen/forest_loss_post_2020_summary.json",
+            f"reports/aoi_report_v2/{aoi_id}/hansen/forest_loss_post_2020_tiles.json",
+        }
+        if required & relpaths:
+            assert required.issubset(relpaths)

@@ -390,6 +390,119 @@
         }
       }
     },
+    "forest_metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canopy_threshold_pct",
+        "reference_forest_mask_year",
+        "loss_year_code_basis",
+        "end_year",
+        "rfm_area_ha",
+        "forest_end_year_area_ha",
+        "loss_total_2001_2024_ha",
+        "loss_2021_2024_ha",
+        "loss_2021_2024_pct_of_rfm",
+        "method",
+        "inputs"
+      ],
+      "properties": {
+        "canopy_threshold_pct": { "type": "integer", "minimum": 0 },
+        "reference_forest_mask_year": { "type": "integer", "minimum": 1900 },
+        "loss_year_code_basis": { "type": "integer", "minimum": 1900 },
+        "end_year": { "type": "integer", "minimum": 1900 },
+        "rfm_area_ha": { "type": "number" },
+        "forest_end_year_area_ha": { "type": "number" },
+        "loss_total_2001_2024_ha": { "type": "number" },
+        "loss_2021_2024_ha": { "type": "number" },
+        "loss_2021_2024_pct_of_rfm": { "type": "number" },
+        "method": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["area", "zonal", "notes"],
+          "properties": {
+            "area": { "type": "string", "minLength": 1 },
+            "zonal": { "type": "string", "minLength": 1 },
+            "notes": { "type": "string", "minLength": 1 }
+          }
+        },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["hansen_treecover2000", "hansen_lossyear"],
+          "properties": {
+            "hansen_treecover2000": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["source", "tile_refs", "hash", "tiles_manifest_ref"],
+              "properties": {
+                "source": { "type": "string", "minLength": 1 },
+                "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+                "tiles_manifest_ref": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["relpath", "sha256"],
+                  "properties": {
+                    "relpath": { "type": "string", "minLength": 1 },
+                    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+                  }
+                },
+                "tile_refs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["tile_id", "layer", "local_path", "sha256", "size_bytes", "source_url"],
+                    "properties": {
+                      "tile_id": { "type": "string", "minLength": 1 },
+                      "layer": { "type": "string", "minLength": 1 },
+                      "local_path": { "type": "string", "minLength": 1 },
+                      "sha256": { "type": "string" },
+                      "size_bytes": { "type": "integer", "minimum": 0 },
+                      "source_url": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            },
+            "hansen_lossyear": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["source", "tile_refs", "hash", "tiles_manifest_ref"],
+              "properties": {
+                "source": { "type": "string", "minLength": 1 },
+                "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+                "tiles_manifest_ref": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["relpath", "sha256"],
+                  "properties": {
+                    "relpath": { "type": "string", "minLength": 1 },
+                    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+                  }
+                },
+                "tile_refs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["tile_id", "layer", "local_path", "sha256", "size_bytes", "source_url"],
+                    "properties": {
+                      "tile_id": { "type": "string", "minLength": 1 },
+                      "layer": { "type": "string", "minLength": 1 },
+                      "local_path": { "type": "string", "minLength": 1 },
+                      "sha256": { "type": "string" },
+                      "size_bytes": { "type": "integer", "minimum": 0 },
+                      "source_url": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "extensions": { "type": "object" }
   }
 }

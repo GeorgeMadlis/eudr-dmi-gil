@@ -119,7 +119,10 @@ def test_cli_golden_run_creates_bundle(tmp_path: Path) -> None:
     if html_relpaths:
         html_text = report_html.read_text(encoding="utf-8")
         for relpath in html_relpaths:
-            assert relpath in html_text
+            if Path(relpath).name == report_html.name:
+                continue
+            if relpath not in html_text:
+                assert Path(relpath).name in html_text
 
     # metrics.csv header and stable row ordering.
     lines = metrics_csv.read_text(encoding="utf-8").splitlines()

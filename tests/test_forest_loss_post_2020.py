@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import rasterio
+import pytest
 from pyproj import Geod
 from rasterio.transform import from_bounds
 
@@ -105,3 +106,14 @@ def test_compute_forest_loss_post_2020(tmp_path: Path) -> None:
     assert result.current_tree_cover_ha == round(current_area, 6)
     assert result.mask_forest_loss_post_2020_path.is_file()
     assert result.mask_forest_current_path.is_file()
+
+    forest_metrics = result.forest_metrics
+    assert forest_metrics.loss_year_code_basis == 2000
+    assert forest_metrics.end_year == 2024
+    assert forest_metrics.rfm_area_ha == pytest.approx(baseline_area)
+    assert forest_metrics.loss_total_ha == pytest.approx(loss_area)
+    assert forest_metrics.loss_2021_2024_ha == pytest.approx(loss_area)
+    assert forest_metrics.forest_2024_ha == pytest.approx(current_area)
+    assert forest_metrics.forest_end_year_ha == pytest.approx(current_area)
+    expected_loss_pct = (loss_area / baseline_area * 100.0) if baseline_area else 0.0
+    assert forest_metrics.loss_2021_2024_pct_of_rfm == pytest.approx(expected_loss_pct)

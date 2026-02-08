@@ -112,6 +112,7 @@ def _render_report_html(report: dict[str, Any], *, rel_artifacts: list[str]) -> 
     aoi_id = report.get("aoi_id", "(unknown)")
     bundle_id = report.get("bundle_id", "(unknown)")
     generated = report.get("generated_at_utc", "(unknown)")
+    forest_metrics = report.get("forest_metrics", {})
 
     def _link(label: str, relpath: str) -> str:
         return (
@@ -150,6 +151,20 @@ def _render_report_html(report: dict[str, Any], *, rel_artifacts: list[str]) -> 
         links = ["<li>(none)</li>"]
 
     links_html = "\n".join(links)
+
+    forest_rows: list[str] = []
+    if isinstance(forest_metrics, dict) and forest_metrics:
+      loss_recent = forest_metrics.get("loss_2021_2024_ha")
+      loss_recent_pct = forest_metrics.get("loss_2021_2024_pct_of_rfm")
+      forest_rows.extend(
+        [
+          f"<li><b>Tree cover threshold (%):</b> {forest_metrics.get('canopy_threshold_pct')}</li>",
+          f"<li><b>RFM area (ha):</b> {forest_metrics.get('rfm_area_ha')}</li>",
+          f"<li><b>Loss 2021–2024 (ha):</b> {loss_recent} ({loss_recent_pct}% of RFM)</li>",
+          f"<li><b>Forest end-year area (ha):</b> {forest_metrics.get('forest_end_year_area_ha')}</li>",
+        ]
+      )
+    forest_html = "\n".join(forest_rows) if forest_rows else "<li>(none)</li>"
 
     return f"""<!doctype html>
 <html lang=\"en\">
@@ -202,6 +217,12 @@ def _render_report_html(report: dict[str, Any], *, rel_artifacts: list[str]) -> 
         <h2>Artifacts</h2>
         <ul>
           {links_html}
+        </ul>
+      </div>
+      <div class="card" style="margin-top:16px;">
+        <h2>Forest area and loss (pixel-based, AOI intersection)</h2>
+        <ul>
+          {forest_html}
         </ul>
       </div>
     </div>
@@ -278,6 +299,32 @@ def export_aoi_reports(*, evidence_root: Path, output_root: Path) -> None:
         _add_relpath(dest.relative_to(run_dir).as_posix())
 
     # Write canonical report JSON name
+    extensions = report.get("extensions") if isinstance(report.get("extensions"), dict) else {}
+    params_payload = extensions.get("forest_metrics_params") if isinstance(extensions, dict) else None
+    debug_payload = extensions.get("forest_metrics_debug") if isinstance(extensions, dict) else None
+    artifacts_block: dict[str, str] = {}
+
+    if isinstance(params_payload, dict):
+      params_path = run_dir / "forest_metrics_params.json"
+      params_path.write_text(
+        json.dumps(params_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+      )
+      _add_relpath(params_path.relative_to(run_dir).as_posix())
+      artifacts_block["params_ref"] = params_path.name
+
+    if isinstance(debug_payload, dict):
+      debug_path = run_dir / "forest_metrics_debug.json"
+      debug_path.write_text(
+        json.dumps(debug_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+      )
+      _add_relpath(debug_path.relative_to(run_dir).as_posix())
+      artifacts_block["debug_ref"] = debug_path.name
+
+    if artifacts_block:
+      report.setdefault("extensions", {})["forest_metrics_artifacts"] = artifacts_block
+
     report_json_out = run_dir / "aoi_report.json"
     report_json_out.write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
