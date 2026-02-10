@@ -16,6 +16,8 @@ class ForestLossComputedOutputs:
     area_ha: float
     pixel_size_m: int
     mask_geojson_relpath: str
+    mask_forest_2000_relpath: str
+    mask_forest_end_year_relpath: str
     tiles_manifest_relpath: str
     summary_relpath: str
 
@@ -27,6 +29,8 @@ class ForestLossAnalysisResult:
     summary_path: Path
     loss_mask_path: Path
     current_mask_path: Path
+    forest_2000_mask_path: Path
+    forest_end_year_mask_path: Path
     raw: ForestLossResult
 
 
@@ -76,6 +80,8 @@ def run_forest_loss_post_2020(
         area_ha=raw.forest_loss_post_2020_ha,
         pixel_size_m=30,
         mask_geojson_relpath=raw.mask_forest_loss_post_2020_path.name,
+        mask_forest_2000_relpath=raw.mask_forest_2000_path.name,
+        mask_forest_end_year_relpath=raw.mask_forest_end_year_path.name,
         tiles_manifest_relpath=tiles_manifest_path.name,
         summary_relpath=raw.summary_path.name,
     )
@@ -86,5 +92,7 @@ def run_forest_loss_post_2020(
         summary_path=raw.summary_path,
         loss_mask_path=raw.mask_forest_loss_post_2020_path,
         current_mask_path=raw.mask_forest_current_path,
+        forest_2000_mask_path=raw.mask_forest_2000_path,
+        forest_end_year_mask_path=raw.mask_forest_end_year_path,
         raw=raw,
     )

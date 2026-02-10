@@ -390,6 +390,44 @@
         }
       }
     },
+    "map_assets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["config_relpath", "latest_year", "layers", "aoi_bbox"],
+      "properties": {
+        "config_relpath": { "type": "string", "minLength": 1 },
+        "latest_year": { "type": "integer", "minimum": 2000 },
+        "layers": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "forest_2000",
+            "forest_end_year",
+            "forest_loss_post_2020",
+            "aoi_boundary",
+            "parcels"
+          ],
+          "properties": {
+            "forest_2000": { "type": ["string", "null"] },
+            "forest_end_year": { "type": ["string", "null"] },
+            "forest_loss_post_2020": { "type": ["string", "null"] },
+            "aoi_boundary": { "type": ["string", "null"] },
+            "parcels": { "type": ["string", "null"] }
+          }
+        },
+        "aoi_bbox": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["min_lon", "min_lat", "max_lon", "max_lat"],
+          "properties": {
+            "min_lon": { "type": "number" },
+            "min_lat": { "type": "number" },
+            "max_lon": { "type": "number" },
+            "max_lat": { "type": "number" }
+          }
+        }
+      }
+    },
     "forest_metrics": {
       "type": "object",
       "additionalProperties": false,

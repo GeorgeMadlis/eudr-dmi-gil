@@ -70,6 +70,8 @@ def test_inspection_html_contains_sections(tmp_path: Path) -> None:
     hrefs = re.findall(r'href="([^"]+)"', html)
     assert hrefs, "expected at least one link"
     for href in hrefs:
+        if href.startswith("https://unpkg.com/leaflet@"):  # external Leaflet assets
+            continue
         assert not href.startswith("/")
         assert "://" not in href
         resolved = (report_html.parent / href).resolve()

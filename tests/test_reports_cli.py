@@ -135,6 +135,8 @@ def test_cli_golden_run_creates_bundle(tmp_path: Path) -> None:
     hrefs = re.findall(r'href="([^"]+)"', html)
     assert hrefs, "expected at least one link"
     for href in hrefs:
+        if href.startswith("https://unpkg.com/leaflet@"):  # external Leaflet assets
+            continue
         assert not href.startswith("/")
         assert "://" not in href
         assert str(tmp_path) not in href
@@ -248,3 +250,9 @@ def test_cli_hansen_external_dependencies(tmp_path: Path) -> None:
     summary_ref = crosscheck.get("summary_ref", {})
     assert (bundle_dir / csv_ref.get("relpath", "")).is_file()
     assert (bundle_dir / summary_ref.get("relpath", "")).is_file()
+
+    map_assets = report.get("map_assets")
+    assert isinstance(map_assets, dict)
+    map_config_rel = map_assets.get("config_relpath")
+    assert isinstance(map_config_rel, str)
+    assert (bundle_dir / map_config_rel).is_file()

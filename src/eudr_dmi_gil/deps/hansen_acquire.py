@@ -53,6 +53,55 @@ def resolve_hansen_url_template() -> str:
     return url_template or DEFAULT_HANSEN_URL_TEMPLATE
 
 
+def infer_hansen_latest_year(
+    *,
+    dataset_version: str | None = None,
+    tile_dir: Path | None = None,
+    external_root: Path | None = None,
+) -> int:
+    """Infer the most recent Hansen year from local context.
+
+    Preference order:
+    1) Explicit dataset_version (e.g., "2024-v1.12")
+    2) Tile directory path parts (e.g., hansen_gfc_2024_v1_12)
+    3) External root hansen directories
+    4) DATASET_VERSION_DEFAULT
+    """
+
+    def _extract_year(value: str) -> int | None:
+        match = re.search(r"(?<!\d)(20\d{2})(?!\d)", value)
+        if not match:
+            return None
+        return int(match.group(1))
+
+    candidates: list[int] = []
+
+    if dataset_version:
+        year = _extract_year(dataset_version)
+        if year is not None:
+            candidates.append(year)
+
+    if tile_dir is not None:
+        for part in tile_dir.resolve().parts:
+            year = _extract_year(str(part))
+            if year is not None:
+                candidates.append(year)
+
+    if not candidates:
+        root = external_root or data_plane.external_root()
+        hansen_root = Path(root) / "hansen"
+        if hansen_root.is_dir():
+            for entry in hansen_root.iterdir():
+                if not entry.is_dir():
+                    continue
+                year = _extract_year(entry.name)
+                if year is not None:
+                    candidates.append(year)
+
+    fallback = _extract_year(DATASET_VERSION_DEFAULT) or 2024
+    return max(candidates) if candidates else fallback
+
+
 def _download_to_path(url: str, dest_path: Path) -> None:
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = dest_path.with_suffix(dest_path.suffix + ".part")

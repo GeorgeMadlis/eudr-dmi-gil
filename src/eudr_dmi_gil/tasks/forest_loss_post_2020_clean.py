@@ -21,6 +21,7 @@ from eudr_dmi_gil.deps.hansen_acquire import (
     HansenLayerEntry,
     ensure_hansen_layers_present,
     hansen_default_base_dir,
+    infer_hansen_latest_year,
     resolve_hansen_url_template,
 )
 from eudr_dmi_gil.deps.hansen_tiles import hansen_tile_ids_for_bbox, load_aoi_bbox
@@ -28,6 +29,7 @@ from eudr_dmi_gil.geo.forest_area_core import (
     forest_2024_mask,
     forest_mask_end_year,
     loss_2021_2024_mask,
+    loss_mask_range,
     loss_total_mask,
     pixel_area_m2_raster,
     rasterize_zone_mask,
@@ -69,6 +71,8 @@ class ForestLossResult:
     current_tree_cover_ha: float
     mask_forest_loss_post_2020_path: Path
     mask_forest_current_path: Path
+    mask_forest_2000_path: Path
+    mask_forest_end_year_path: Path
     forest_mask_debug_path: Path
     forest_metrics: "ForestMetrics"
     forest_metrics_params: "ForestMetricsParams"
@@ -327,7 +331,10 @@ def compute_forest_loss_post_2020(
     tree_nodata_pixels = 0
     lossyear_nodata_pixels = 0
 
-    end_year = 2024
+    end_year = infer_hansen_latest_year(
+        dataset_version=config.dataset_version,
+        tile_dir=config.tile_dir,
+    )
     rfm_area_ha = np.float64(0.0)
     loss_total_2001_2024_ha = np.float64(0.0)
     loss_2021_2024_ha = np.float64(0.0)
@@ -347,6 +354,8 @@ def compute_forest_loss_post_2020(
     provenance: list[TileProvenance] = []
     loss_features: list[dict[str, Any]] = []
     current_features: list[dict[str, Any]] = []
+    baseline_features: list[dict[str, Any]] = []
+    end_year_features: list[dict[str, Any]] = []
 
     cutoff_threshold = max(config.cutoff_year - 2000, 0)
 
@@ -381,7 +390,7 @@ def compute_forest_loss_post_2020(
 
                 rfm = rfm_mask(tree_values, config.canopy_threshold_percent)
                 baseline = valid & rfm
-                loss_post_2020 = baseline & (loss_values > cutoff_threshold)
+                loss_post_2020 = baseline & (loss_values >= cutoff_threshold)
                 current_cover = baseline & (loss_values == 0)
 
                 if zone_shape is None or zone_shape.is_empty:
@@ -408,10 +417,12 @@ def compute_forest_loss_post_2020(
                     loss_values,
                     config.canopy_threshold_percent,
                 ) & valid
-                loss_recent_mask = loss_2021_2024_mask(
+                loss_recent_mask = loss_mask_range(
                     tree_values,
                     loss_values,
                     config.canopy_threshold_percent,
+                    2021,
+                    end_year,
                 ) & valid
                 forest_2024_mask_bool = forest_2024_mask(
                     tree_values,
@@ -484,6 +495,12 @@ def compute_forest_loss_post_2020(
                     current_features.extend(
                         _mask_features(current_cover_zone, tree_transform, tree_ds.crs)
                     )
+                    baseline_features.extend(
+                        _mask_features(baseline_zone, tree_transform, tree_ds.crs)
+                    )
+                    end_year_features.extend(
+                        _mask_features(forest_end_mask & zone_mask, tree_transform, tree_ds.crs)
+                    )
         except RasterioIOError as exc:
             raise RuntimeError(f"Failed to read Hansen tile: {exc}") from exc
 
@@ -506,9 +523,13 @@ def compute_forest_loss_post_2020(
 
     loss_mask_path = output_dir / "forest_loss_post_2020_mask.geojson"
     current_mask_path = output_dir / "forest_current_tree_cover_mask.geojson"
+    forest_2000_mask_path = output_dir / "forest_2000_tree_cover_mask.geojson"
+    forest_end_year_mask_path = output_dir / "forest_end_year_tree_cover_mask.geojson"
     if config.write_masks:
         _write_mask_geojson(loss_mask_path, loss_features)
         _write_mask_geojson(current_mask_path, current_features)
+        _write_mask_geojson(forest_2000_mask_path, baseline_features)
+        _write_mask_geojson(forest_end_year_mask_path, end_year_features)
 
     debug_path = output_dir / "forest_mask_debug.json"
     write_json(
@@ -535,6 +556,8 @@ def compute_forest_loss_post_2020(
         "pixel_current_tree_cover_ha": round(current_cover_ha, 6),
         "mask_forest_loss_post_2020": loss_mask_path.name,
         "mask_forest_current_year": current_mask_path.name,
+        "mask_forest_2000": forest_2000_mask_path.name,
+        "mask_forest_end_year": forest_end_year_mask_path.name,
         "tiles": [
             {"layer": p.layer, "path": p.relpath, "sha256": p.sha256}
             for p in sorted(provenance, key=lambda p: (p.layer, p.relpath))
@@ -601,6 +624,8 @@ def compute_forest_loss_post_2020(
         current_tree_cover_ha=summary["pixel_current_tree_cover_ha"],
         mask_forest_loss_post_2020_path=loss_mask_path,
         mask_forest_current_path=current_mask_path,
+        mask_forest_2000_path=forest_2000_mask_path,
+        mask_forest_end_year_path=forest_end_year_mask_path,
         forest_mask_debug_path=debug_path,
         forest_metrics=forest_metrics,
         forest_metrics_params=forest_metrics_params,

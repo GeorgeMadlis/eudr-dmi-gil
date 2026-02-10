@@ -22,6 +22,10 @@ def _iter_coords(obj: object) -> Iterable[tuple[float, float]]:
                     yield from _iter_coords(feat.get("geometry", {}))
         elif obj.get("type") == "Feature":
             yield from _iter_coords(obj.get("geometry", {}))
+        elif obj.get("type") == "GeometryCollection":
+            for geom in obj.get("geometries", []):
+                if isinstance(geom, dict):
+                    yield from _iter_coords(geom)
 
 
 def load_aoi_bbox(aoi_geojson_path: Path) -> tuple[float, float, float, float]:

@@ -14,7 +14,6 @@ from shapely.geometry import shape, mapping
 from shapely.ops import unary_union
 
 from eudr_dmi_gil.reports.determinism import write_json
-from eudr_dmi.methods.maa_amet_crosscheck import MAA_AMET_FOREST_SOURCE
 
 
 @dataclass(frozen=True)
@@ -35,6 +34,10 @@ class ParcelFeature:
     geometry: dict[str, Any] | None
     pindala_m2: float | None
     geodesic_area_ha: float | None
+    maaamet_land_area_ha: float | None
+    maaamet_forest_area_ha: float | None
+    hansen_land_area_ha: float | None
+    hansen_forest_area_ha: float | None
     fields_considered: list[str]
     forest_area_key_used: str | None
 
@@ -267,6 +270,11 @@ def _analyze_parcel_feature(
             reference_method = "geodesic_wgs84_pyproj"
 
     pindala_m2 = _to_float(props.get("pindala"))
+    maaamet_land_area_ha: float | None = None
+    if pindala_m2 is not None:
+        maaamet_land_area_ha = pindala_m2 / 10_000.0
+    elif geodesic_area_ha is not None:
+        maaamet_land_area_ha = geodesic_area_ha
 
     return ParcelFeature(
         parcel_id=parcel_id,
@@ -277,6 +285,10 @@ def _analyze_parcel_feature(
         geometry=geom,
         pindala_m2=None if pindala_m2 is None else round(pindala_m2, 6),
         geodesic_area_ha=None if geodesic_area_ha is None else round(geodesic_area_ha, 6),
+        maaamet_land_area_ha=None if maaamet_land_area_ha is None else round(maaamet_land_area_ha, 6),
+        maaamet_forest_area_ha=None if forest_area_ha is None else round(forest_area_ha, 6),
+        hansen_land_area_ha=None,
+        hansen_forest_area_ha=None,
         fields_considered=fields_considered,
         forest_area_key_used=forest_area_key_used,
     )
@@ -295,15 +307,26 @@ def _analyze_parcels_from_geojson(data: Any, aoi_geom) -> list[ParcelFeature]:
     return parcels
 
 
-def _select_top10(parcels: list[ParcelFeature]) -> list[ParcelFeature]:
+def _select_top10(
+    parcels: list[ParcelFeature],
+    *,
+    min_forest_ha: float = 0.0,
+    prefer_hansen: bool = False,
+) -> list[ParcelFeature]:
+    def _forest_area(parcel: ParcelFeature) -> float:
+        if prefer_hansen and parcel.hansen_forest_area_ha is not None:
+            return parcel.hansen_forest_area_ha
+        return parcel.forest_area_ha or 0.0
+
     def sort_key(parcel: ParcelFeature) -> tuple[float, float, str]:
-        forest_area = parcel.forest_area_ha or 0.0
+        forest_area = _forest_area(parcel)
         pindala = parcel.pindala_m2 or 0.0
         geo_area = (parcel.geodesic_area_ha or 0.0) * 10_000.0
         tie = pindala if pindala > 0 else geo_area
         return (-forest_area, -tie, parcel.parcel_id)
 
-    return sorted(parcels, key=sort_key)[:10]
+    eligible = [p for p in parcels if _forest_area(p) >= min_forest_ha]
+    return sorted(eligible, key=sort_key)[:10]
 
 
 def _write_top10_geojson(path: Path, parcels: list[ParcelFeature], keys: list[str]) -> None:
@@ -312,6 +335,10 @@ def _write_top10_geojson(path: Path, parcels: list[ParcelFeature], keys: list[st
         props = {
             "parcel_id": parcel.parcel_id,
             "forest_area_ha": parcel.forest_area_ha,
+            "maaamet_land_area_ha": parcel.maaamet_land_area_ha,
+            "maaamet_forest_area_ha": parcel.maaamet_forest_area_ha,
+            "hansen_land_area_ha": parcel.hansen_land_area_ha,
+            "hansen_forest_area_ha": parcel.hansen_forest_area_ha,
         }
         for key in keys:
             if key in parcel.properties:
@@ -328,7 +355,16 @@ def _write_top10_geojson(path: Path, parcels: list[ParcelFeature], keys: list[st
 
 def _write_top10_csv(path: Path, parcels: list[ParcelFeature], keys: list[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    headers = ["parcel_id", "forest_area_ha", "pindala_m2", "geodesic_area_ha"] + keys
+    headers = [
+        "parcel_id",
+        "forest_area_ha",
+        "pindala_m2",
+        "geodesic_area_ha",
+        "maaamet_land_area_ha",
+        "maaamet_forest_area_ha",
+        "hansen_land_area_ha",
+        "hansen_forest_area_ha",
+    ] + keys
     with path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=headers)
         writer.writeheader()
@@ -338,6 +374,10 @@ def _write_top10_csv(path: Path, parcels: list[ParcelFeature], keys: list[str]) 
                 "forest_area_ha": parcel.forest_area_ha,
                 "pindala_m2": parcel.pindala_m2,
                 "geodesic_area_ha": parcel.geodesic_area_ha,
+                "maaamet_land_area_ha": parcel.maaamet_land_area_ha,
+                "maaamet_forest_area_ha": parcel.maaamet_forest_area_ha,
+                "hansen_land_area_ha": parcel.hansen_land_area_ha,
+                "hansen_forest_area_ha": parcel.hansen_forest_area_ha,
             }
             for key in keys:
                 row[key] = parcel.properties.get(key)
@@ -467,23 +507,27 @@ def run_maaamet_top10(
     aoi_geojson_path: Path,
     output_dir: Path,
     provider: MaaAmetProvider | None = None,
+    parcels_override: list[ParcelFeature] | None = None,
+    min_forest_ha: float = 0.0,
+    prefer_hansen: bool = False,
 ) -> MaaAmetTop10Result | None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    if provider is None:
-        env_path = os.environ.get("EUDR_DMI_MAAAMET_LOCAL_PATH")
-        if env_path:
-            provider = LocalFileMaaAmetProvider(Path(env_path))
-        else:
-            wfs_url = os.environ.get("MAAAMET_WFS_URL") or MAA_AMET_FOREST_SOURCE.get("url", "")
-            wfs_layer = os.environ.get("MAAAMET_WFS_LAYER") or "kataster:ky_kehtiv"
-            if wfs_url:
-                provider = WfsMaaAmetProvider(wfs_url, wfs_layer)
+    if parcels_override is None:
+        if provider is None:
+            env_path = os.environ.get("EUDR_DMI_MAAAMET_LOCAL_PATH")
+            if env_path:
+                provider = LocalFileMaaAmetProvider(Path(env_path))
+            else:
+                wfs_url = os.environ.get("MAAAMET_WFS_URL", "")
+                wfs_layer = os.environ.get("MAAAMET_WFS_LAYER") or "kataster:ky_kehtiv"
+                if wfs_url:
+                    provider = WfsMaaAmetProvider(wfs_url, wfs_layer)
 
-    if provider is None:
-        return None
+        if provider is None:
+            return None
 
-    parcels = provider.fetch_parcel_features(aoi_geojson_path=aoi_geojson_path)
+    parcels = parcels_override or provider.fetch_parcel_features(aoi_geojson_path=aoi_geojson_path)
     if not parcels:
         empty_geojson_path = output_dir / "maaamet_top10_parcels.geojson"
         empty_csv_path = output_dir / "maaamet_top10_parcels.csv"
@@ -512,7 +556,7 @@ def run_maaamet_top10(
         for p in parcels
     ]
 
-    top10 = _select_top10(parcels)
+    top10 = _select_top10(parcels, min_forest_ha=min_forest_ha, prefer_hansen=prefer_hansen)
     inventory = _build_fields_inventory(parcels)
     keys = inventory.get("candidate_keys", [])
     geojson_path = output_dir / "maaamet_top10_parcels.geojson"
@@ -557,7 +601,7 @@ def run_maaamet_crosscheck(
         env_path = os.environ.get("EUDR_DMI_MAAAMET_LOCAL_PATH")
         provider = LocalFileMaaAmetProvider(Path(env_path)) if env_path else None
         if provider is None:
-            wfs_url = os.environ.get("MAAAMET_WFS_URL") or MAA_AMET_FOREST_SOURCE.get("url", "")
+            wfs_url = os.environ.get("MAAAMET_WFS_URL", "")
             wfs_layer = os.environ.get("MAAAMET_WFS_LAYER") or "kataster:ky_kehtiv"
             if wfs_url:
                 provider = WfsMaaAmetProvider(wfs_url, wfs_layer)
