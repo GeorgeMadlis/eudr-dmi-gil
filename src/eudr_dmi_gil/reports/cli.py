@@ -1778,7 +1778,7 @@ def main(argv: list[str] | None = None) -> int:
         layers = {
             "forest_2000": _rel_href(map_config_path, hansen_analysis.forest_2000_mask_path),
             "forest_end_year": _rel_href(
-                map_config_path, hansen_analysis.forest_end_year_mask_path
+                map_config_path, hansen_analysis.current_mask_path
             ),
             "forest_loss_post_2020": _rel_href(map_config_path, hansen_analysis.loss_mask_path),
             "aoi_boundary": _rel_href(map_config_path, geo_path),
