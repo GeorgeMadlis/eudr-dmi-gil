@@ -59,13 +59,14 @@ export PYTHONPATH="$REPO_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 
 AOI_PATH="${AOI_GEOJSON:-$REPO_ROOT/aoi_json_examples/estonia_testland1.geojson}"
 EVIDENCE_ROOT="$REPO_ROOT/.tmp/evidence_example"
-OUTPUT_ROOT="$REPO_ROOT/out/site_bundle/aoi_reports"
+OUTPUT_ROOT="${EUDR_DMI_AOI_STAGING_DIR:-$REPO_ROOT/out/site_bundle/aoi_reports}"
 export EUDR_DMI_DATA_ROOT="${EUDR_DMI_DATA_ROOT:-/Users/server/data/eudr-dmi}"
 HANSEN_TILE_DIR="${EUDR_DMI_HANSEN_TILE_DIR:-$EUDR_DMI_DATA_ROOT/hansen/hansen_gfc_2024_v1_12/tiles}"
 DT_REPO="${DT_REPO:-/Users/server/projects/eudr-dmi-gil-digital-twin}"
 
 RUN_ID="${RUN_ID:-example}"
-STAGED_RUN_ID="example"
+STAGED_RUN_ID="${STAGED_RUN_ID:-$RUN_ID}"
+REPORT_JSON_FILENAME="${EUDR_DMI_AOI_REPORT_JSON_FILENAME:-aoi_report.json}"
 AOI_ID="${AOI_ID:-estonia_testland1}"
 PUBLISH_DT=0
 
@@ -79,7 +80,7 @@ for arg in "$@"; do
       ;;
     -h|--help)
       echo "Usage: scripts/run_example_report_clean.sh [--publish-dt|--no-publish-dt]" >&2
-      echo "Env vars: DT_REPO" >&2
+      echo "Env vars: DT_REPO, RUN_ID, STAGED_RUN_ID, AOI_GEOJSON, AOI_ID, EUDR_DMI_AOI_REPORT_JSON_FILENAME, EUDR_DMI_AOI_STAGING_DIR" >&2
       exit 0
       ;;
     *)
@@ -96,6 +97,8 @@ mkdir -p "$EVIDENCE_ROOT"
 
 export EUDR_DMI_EVIDENCE_ROOT="$EVIDENCE_ROOT"
 export EUDR_DMI_AOI_STAGING_DIR="$OUTPUT_ROOT"
+export EUDR_DMI_AOI_STAGING_RUN_ID="$STAGED_RUN_ID"
+export EUDR_DMI_AOI_REPORT_JSON_FILENAME="$REPORT_JSON_FILENAME"
 export MAAAMET_WFS_URL="${MAAAMET_WFS_URL:-https://gsavalik.envir.ee/geoserver/wfs}"
 export MAAAMET_WFS_LAYER="${MAAAMET_WFS_LAYER:-kataster:ky_kehtiv}"
 HANSEN_MINIO_CACHE="${HANSEN_MINIO_CACHE:-1}"
@@ -153,7 +156,7 @@ step_start "export_aoi_reports_staging"
 "$PYTHON" "$REPO_ROOT/scripts/export_aoi_reports_staging.py"
 step_end
 
-REPORT_JSON="$OUTPUT_ROOT/runs/$STAGED_RUN_ID/aoi_report.json"
+REPORT_JSON="$OUTPUT_ROOT/runs/$STAGED_RUN_ID/$REPORT_JSON_FILENAME"
 REPORT_HTML="$OUTPUT_ROOT/runs/$STAGED_RUN_ID/report.html"
 SUMMARY_JSON="$OUTPUT_ROOT/runs/$STAGED_RUN_ID/summary.json"
 INDEX_HTML="$OUTPUT_ROOT/index.html"
@@ -242,24 +245,28 @@ if [[ -f "$SUMMARY_JSON" ]]; then
   printf "%s\n" "- $abs_summary_json"
 fi
 
-step_start "detect_example_bundle_artifact_changes"
-set +e
-python3 "$REPO_ROOT/scripts/detect_example_bundle_artifact_changes.py" \
-  --local-run-root "$REPO_ROOT/out/site_bundle/aoi_reports/runs/example" \
-  --baseline-manifest "$REPO_ROOT/docs/baselines/dt_example_manifest.json" \
-  --instructions-file "$REPO_ROOT/docs/baselines/dte_gpt_instructions.txt"
-detect_status=$?
-set -e
-if [[ $detect_status -eq 0 ]]; then
-  echo "DTE setup update: not required (no artifact change detected)."
-elif [[ $detect_status -eq 3 ]]; then
-  echo "DTE setup update REQUIRED: artifacts changed."
-  echo "Open: out/dte_update/dte_setup_patch.md (copy/paste into DTE GPT setup)"
+if [[ "$STAGED_RUN_ID" == "example" && "$REPORT_JSON_FILENAME" == "aoi_report.json" ]]; then
+  step_start "detect_example_bundle_artifact_changes"
+  set +e
+  python3 "$REPO_ROOT/scripts/detect_example_bundle_artifact_changes.py" \
+    --local-run-root "$REPO_ROOT/out/site_bundle/aoi_reports/runs/example" \
+    --baseline-manifest "$REPO_ROOT/docs/baselines/dt_example_manifest.json" \
+    --instructions-file "$REPO_ROOT/docs/baselines/dte_gpt_instructions.txt"
+  detect_status=$?
+  set -e
+  if [[ $detect_status -eq 0 ]]; then
+    echo "DTE setup update: not required (no artifact change detected)."
+  elif [[ $detect_status -eq 3 ]]; then
+    echo "DTE setup update REQUIRED: artifacts changed."
+    echo "Open: out/dte_update/dte_setup_patch.md (copy/paste into DTE GPT setup)"
+  else
+    echo "ERROR: DTE update detection failed." >&2
+    exit 2
+  fi
+  step_end
 else
-  echo "ERROR: DTE update detection failed." >&2
-  exit 2
+  log "SKIP: detect_example_bundle_artifact_changes (non-default run/json filename)"
 fi
-step_end
 
 if [[ "$PUBLISH_DT" == "1" ]]; then
   if [[ ! -d "$DT_REPO/.git" ]]; then

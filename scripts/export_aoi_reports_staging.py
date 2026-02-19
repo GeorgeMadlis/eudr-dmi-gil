@@ -11,7 +11,8 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EVIDENCE_ROOT_DEFAULT = REPO_ROOT / "audit" / "evidence"
 OUTPUT_ROOT_DEFAULT = REPO_ROOT / "out" / "site_bundle" / "aoi_reports"
-EXAMPLE_RUN_ID = "example"
+DEFAULT_STAGED_RUN_ID = "example"
+DEFAULT_REPORT_JSON_FILENAME = "aoi_report.json"
 
 
 @dataclass(frozen=True)
@@ -26,7 +27,7 @@ def _load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _ensure_single_example_run(output_root: Path) -> None:
+def _ensure_single_staged_run(output_root: Path, *, run_id: str) -> None:
     runs_dir = output_root / "runs"
     if not runs_dir.is_dir():
         raise SystemExit(f"Runs dir not found: {runs_dir}")
@@ -35,11 +36,11 @@ def _ensure_single_example_run(output_root: Path) -> None:
     if len(run_dirs) != 1:
         raise SystemExit(f"Expected exactly one run dir under {runs_dir}, found {len(run_dirs)}")
 
-    if run_dirs[0].name != EXAMPLE_RUN_ID:
-        raise SystemExit(f"Expected only '{EXAMPLE_RUN_ID}' run dir, found: {run_dirs[0].name}")
+    if run_dirs[0].name != run_id:
+      raise SystemExit(f"Expected only '{run_id}' run dir, found: {run_dirs[0].name}")
 
 
-def _render_index(entry: RunEntry) -> str:
+def _render_index(entry: RunEntry, *, report_json_filename: str) -> str:
     summary_link = (
         f' <span class="muted">(</span><a href="runs/{entry.run_id}/summary.json">summary.json</a>'
         f'<span class="muted">)</span>'
@@ -48,7 +49,7 @@ def _render_index(entry: RunEntry) -> str:
     )
     rows = (
         f'<li><a href="runs/{entry.run_id}/report.html">{entry.run_id}</a> '
-        f'<span class="muted">(</span><a href="runs/{entry.run_id}/aoi_report.json">aoi_report.json</a>'
+      f'<span class="muted">(</span><a href="runs/{entry.run_id}/{report_json_filename}">{report_json_filename}</a>'
         f'<span class="muted">)</span>{summary_link}</li>'
     )
 
@@ -232,7 +233,13 @@ def _render_report_html(report: dict[str, Any], *, rel_artifacts: list[str]) -> 
 """
 
 
-def export_aoi_reports(*, evidence_root: Path, output_root: Path) -> None:
+def export_aoi_reports(
+  *,
+  evidence_root: Path,
+  output_root: Path,
+  staged_run_id: str,
+  report_json_filename: str,
+) -> None:
     if output_root.exists():
         shutil.rmtree(output_root)
     output_root.mkdir(parents=True, exist_ok=True)
@@ -252,7 +259,7 @@ def export_aoi_reports(*, evidence_root: Path, output_root: Path) -> None:
     # report_json is expected at: <bundle_root>/reports/aoi_report_v*/<aoi_id>.json
     report_root = report_json.parent
     bundle_root = report_root.parent.parent
-    run_dir = output_root / "runs" / EXAMPLE_RUN_ID
+    run_dir = output_root / "runs" / staged_run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
     rel_artifacts: list[str] = []
@@ -325,13 +332,13 @@ def export_aoi_reports(*, evidence_root: Path, output_root: Path) -> None:
     if artifacts_block:
       report.setdefault("extensions", {})["forest_metrics_artifacts"] = artifacts_block
 
-    report_json_out = run_dir / "aoi_report.json"
+    report_json_out = run_dir / report_json_filename
     report_json_out.write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    if "aoi_report.json" not in rel_artifacts_set:
-      rel_artifacts.insert(0, "aoi_report.json")
-      rel_artifacts_set.add("aoi_report.json")
+    if report_json_filename not in rel_artifacts_set:
+      rel_artifacts.insert(0, report_json_filename)
+      rel_artifacts_set.add(report_json_filename)
 
     # Render a portable report.html (relative links)
     report_html_out = run_dir / "report.html"
@@ -353,21 +360,37 @@ def export_aoi_reports(*, evidence_root: Path, output_root: Path) -> None:
 
     summary_present = (run_dir / "summary.json").is_file()
     entry = RunEntry(
-        run_id=EXAMPLE_RUN_ID,
+        run_id=staged_run_id,
         report_html_path=report_html_out,
         report_json_path=report_json_out,
         summary_present=summary_present,
     )
-    index_html = _render_index(entry)
+    index_html = _render_index(entry, report_json_filename=report_json_filename)
     (output_root / "index.html").write_text(index_html, encoding="utf-8")
 
-    _ensure_single_example_run(output_root)
+    _ensure_single_staged_run(output_root, run_id=staged_run_id)
 
 
 def main() -> int:
     evidence_root = Path(os.environ.get("EUDR_DMI_EVIDENCE_ROOT", str(EVIDENCE_ROOT_DEFAULT)))
     output_root = Path(os.environ.get("EUDR_DMI_AOI_STAGING_DIR", str(OUTPUT_ROOT_DEFAULT)))
-    export_aoi_reports(evidence_root=evidence_root, output_root=output_root)
+    staged_run_id = (
+        os.environ.get("EUDR_DMI_AOI_STAGING_RUN_ID", DEFAULT_STAGED_RUN_ID).strip()
+        or DEFAULT_STAGED_RUN_ID
+    )
+    report_json_filename = (
+        os.environ.get("EUDR_DMI_AOI_REPORT_JSON_FILENAME", DEFAULT_REPORT_JSON_FILENAME).strip()
+        or DEFAULT_REPORT_JSON_FILENAME
+    )
+    if Path(report_json_filename).name != report_json_filename:
+        raise SystemExit("EUDR_DMI_AOI_REPORT_JSON_FILENAME must be a filename, not a path")
+
+    export_aoi_reports(
+        evidence_root=evidence_root,
+        output_root=output_root,
+        staged_run_id=staged_run_id,
+        report_json_filename=report_json_filename,
+    )
     print(str(output_root))
     return 0
 

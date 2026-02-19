@@ -99,13 +99,13 @@ Hansen defaults in the example runner:
 This prints:
 
 - input file path
-- stable output directory: `out/site_bundle/aoi_reports/` with **runs/example/** only
-- absolute paths for `index.html`, `report.html`, `aoi_report.json` (and `summary.json` if present)
+- stable output directory: `out/site_bundle/aoi_reports/` with **runs/<run_id>/**
+- absolute paths for `index.html`, `report.html`, and the configured run-level AOI report JSON filename (and `summary.json` if present)
 
 Publishing policy:
 
-- Only one AOI-agnostic example is published at `runs/example/`.
-- Older examples remain available via git history.
+- DT publishes a deterministic four-run set: `example`, `latin_america`, `se_asia`, `west_africa`.
+- Run-level AOI JSON names are deterministic (`estonia_aoi_report.json`, `latin_america_aoi_report.json`, `se_asia_aoi_report.json`, `west_africa_aoi_report.json`).
 
 ## Operational Runbook (current publish workflow)
 
@@ -120,21 +120,16 @@ DT target path:
 
 - `eudr-dmi-gil-digital-twin/docs/site/aoi_reports/`
 
-Run the deterministic example generation (clean evidence root, stable bundle-id, runs/example only):
+Run deterministic DT AOI set generation + publish sync:
 
 ```sh
-scripts/run_example_report_clean.sh
+scripts/publish_dt_aoi_bundle_set.sh
 ```
 
 Note: avoid `scripts/test_run_estonia_testland1.sh` for DT staging because it creates timestamped
 bundle IDs and multiple runs, which can trigger the “found 3 JSONs” issue.
 
-Publishing policy:
-
-- Only one AOI-agnostic example is published at `runs/example/`.
-- Older examples are available via git history.
-
-Publish the latest 2 AOI reports to the DT repo:
+Alternative: publish the latest N AOI reports to the DT repo:
 
 ```sh
 scripts/publish_latest_aoi_reports_to_dt.sh \
