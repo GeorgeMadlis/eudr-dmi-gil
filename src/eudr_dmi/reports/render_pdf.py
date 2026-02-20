@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from reportlab.lib.pagesizes import A4
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
 from .schema import ReportV1
@@ -32,6 +33,42 @@ def render_report_pdf(report: ReportV1, output_path: str | Path) -> None:
         c.setFont(font, size)
         c.drawString(margin, y, text)
         y -= step
+
+    def ensure_space(required_height: float) -> None:
+        nonlocal y
+        if y - required_height < margin:
+            c.showPage()
+            y = height - margin
+
+    def resolve_evidence_image(item: str) -> Path | None:
+        item_path = out.parent / item
+        suffix = item_path.suffix.lower()
+        if suffix in {".png", ".jpg", ".jpeg"} and item_path.is_file():
+            return item_path
+        if suffix == ".svg":
+            png_candidate = item_path.with_suffix(".png")
+            if png_candidate.is_file():
+                return png_candidate
+            satellite_candidate = item_path.with_name(f"{item_path.stem}_satellite.png")
+            if satellite_candidate.is_file():
+                return satellite_candidate
+        return None
+
+    def draw_evidence_image(image_path: Path) -> None:
+        nonlocal y
+        max_width = width - (2 * margin)
+        max_height = 260.0
+        img = ImageReader(str(image_path))
+        img_w, img_h = img.getSize()
+        if img_w <= 0 or img_h <= 0:
+            return
+        scale = min(max_width / float(img_w), max_height / float(img_h))
+        draw_w = float(img_w) * scale
+        draw_h = float(img_h) * scale
+        ensure_space(draw_h + 10)
+        y_top = y
+        c.drawImage(str(image_path), margin, y_top - draw_h, width=draw_w, height=draw_h, preserveAspectRatio=True)
+        y = y_top - draw_h - 10
 
     payload = report.to_dict()
 
@@ -75,6 +112,9 @@ def render_report_pdf(report: ReportV1, output_path: str | Path) -> None:
     if assess["evidence_maps"]:
         for item in assess["evidence_maps"]:
             write_line(f"Evidence map: {_as_text(item)}")
+            image_path = resolve_evidence_image(str(item))
+            if image_path is not None:
+                draw_evidence_image(image_path)
     else:
         write_line("Evidence map: N/A")
     for metric_key, metric_value in assess["summary_metrics"].items():

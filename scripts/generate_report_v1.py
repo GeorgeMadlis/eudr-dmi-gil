@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import io
 import json
 import sys
 from dataclasses import replace
@@ -10,6 +11,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 from urllib.request import urlopen
+
+from PIL import Image, ImageDraw
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -213,9 +216,24 @@ def _write_static_deforestation_map_svg(
             segments.append(" ".join(path_parts))
         return " ".join(segments)
 
+    def rings_projected(rings: list[list[list[float]]]) -> list[list[tuple[float, float]]]:
+        projected: list[list[tuple[float, float]]] = []
+        for ring in rings:
+            poly: list[tuple[float, float]] = []
+            for point in ring:
+                if not isinstance(point, (list, tuple)) or len(point) < 2:
+                    continue
+                poly.append(project(float(point[0]), float(point[1])))
+            if len(poly) >= 3:
+                projected.append(poly)
+        return projected
+
     forest_path = rings_path(layer_data.get("forest_end_year", []))
     loss_path = rings_path(layer_data.get("forest_loss_post_2020", []))
     aoi_path = rings_path(layer_data.get("aoi_boundary", []))
+    forest_polys = rings_projected(layer_data.get("forest_end_year", []))
+    loss_polys = rings_projected(layer_data.get("forest_loss_post_2020", []))
+    aoi_polys = rings_projected(layer_data.get("aoi_boundary", []))
     latest_year = int(_properties_dict(config).get("latest_year") or 2024)
 
     svg_lines = [
@@ -260,7 +278,32 @@ def _write_static_deforestation_map_svg(
 
     static_name = "deforestation_map.svg"
     (out_dir / static_name).write_text("\n".join(svg_lines), encoding="utf-8")
-    extra_artifacts = [satellite_name] if has_satellite else []
+
+    png_name = "deforestation_map.png"
+    png_path = out_dir / png_name
+    width_px = int(width)
+    height_px = int(height)
+    canvas_img = Image.new("RGBA", (width_px, height_px), (255, 255, 255, 255))
+    if satellite_bytes is not None:
+        base_img = Image.open(io.BytesIO(satellite_bytes)).convert("RGBA")
+    else:
+        base_img = Image.new("RGBA", (int(plot_w), int(plot_h)), (244, 244, 244, 255))
+    base_img = base_img.resize((int(plot_w), int(plot_h)))
+    canvas_img.paste(base_img, (int(pad), int(pad)))
+
+    draw = ImageDraw.Draw(canvas_img, "RGBA")
+    for poly in forest_polys:
+        draw.polygon(poly, fill=(27, 94, 32, 77), outline=(27, 94, 32, 255))
+    for poly in loss_polys:
+        draw.polygon(poly, fill=(198, 40, 40, 140), outline=(198, 40, 40, 255))
+    for poly in aoi_polys:
+        draw.line(poly + [poly[0]], fill=(0, 229, 255, 255), width=3)
+
+    canvas_img.save(png_path)
+
+    extra_artifacts = [png_name]
+    if has_satellite:
+        extra_artifacts.append(satellite_name)
     return static_name, extra_artifacts
 
 

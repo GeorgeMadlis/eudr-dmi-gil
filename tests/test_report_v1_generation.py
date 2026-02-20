@@ -215,6 +215,8 @@ def test_generate_report_with_analysis_writes_static_map_svg(tmp_path: Path) -> 
 
     out = tmp_path / "out" / "reports" / "demo_2026-02-20" / "demo_plot_01"
     assert (out / "deforestation_map.svg").is_file()
+    assert (out / "deforestation_map.png").is_file()
     report_payload = json.loads((out / "report.json").read_text(encoding="utf-8"))
     assert "deforestation_map.svg" in report_payload["deforestation_assessment"]["evidence_maps"]
     assert "deforestation_map.svg" in report_payload["artifacts"]
+    assert "deforestation_map.png" in report_payload["artifacts"]
