@@ -195,6 +195,30 @@ It cleans the DT AOI reports, copies the two runs, regenerates the AOI index, ch
 scripts/publish_aoi_reports_to_dt.sh
 ```
 
+## Report V1 scaffold (JSON + HTML + PDF)
+
+Generate a deterministic, audit-ready report bundle from AOI GeoJSON with optional KYC and analysis inputs:
+
+```sh
+python scripts/generate_report_v1.py \
+	--run-id demo_2026-02-20 \
+	--plot-id demo_plot_01 \
+	--aoi-geojson /absolute/path/to/aoi.geojson \
+	--kyc-json /absolute/path/to/kyc.json \
+	--analysis-json /absolute/path/to/analysis.json \
+	--out-dir out/reports
+```
+
+Output contract:
+
+```text
+out/reports/<run_id>/<plot_id>/
+	report.json
+	report.html
+	report.pdf
+	manifest.sha256
+```
+
 ## Governance, Inspection & DAO Entry Points
 
 This repository is the authoritative implementation.
