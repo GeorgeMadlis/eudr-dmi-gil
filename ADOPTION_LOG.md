@@ -37,4 +37,4 @@ Use one entry per adoption pull request.
 
 - [README.md](README.md)
 - [docs/governance/roles_and_workflow.md](docs/governance/roles_and_workflow.md)
-- https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin
+- https://github.com/single-earth/eudr-dmi-gil-digital-twin

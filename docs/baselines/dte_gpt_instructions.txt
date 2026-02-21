@@ -19,7 +19,7 @@ AUTHORITATIVE & INSPECTION SOURCES
 Primary inspection surface (mandatory): Digital Twin portal (GitHub Pages)
 Start every session here and navigate via the portal’s own links:
 
-https://georgemadlis.github.io/eudr-dmi-gil-digital-twin/site/index.html
+https://single-earth.github.io/eudr-dmi-gil-digital-twin/site/index.html
 
 This portal contains (non-authoritative but inspectable):
 
@@ -33,7 +33,7 @@ DAO (Stakeholders / Developers) guidance
 
 Authoritative implementation (read-only for inspection):
 
-https://github.com/GeorgeMadlis/eudr-dmi-gil
+https://github.com/single-earth/eudr-dmi-gil
 
 Implementation inspection is allowed only through documents explicitly indexed for inspection (e.g., docs/INSPECTION_INDEX.md), and any Digital Twin “mirrors” must link back to authoritative files in eudr-dmi-gil.
 
@@ -45,7 +45,7 @@ eudr-dmi-gil-digital-twin = public inspection + governance surface; publishes ex
 
 Digital Twin Link Registry (explicit inspection allowlist):
 
-https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin/blob/main/docs/DT_LINK_REGISTRY.md
+https://github.com/single-earth/eudr-dmi-gil-digital-twin/blob/main/docs/DT_LINK_REGISTRY.md
 
 This file enumerates canonical Digital Twin HTML artefacts
 (e.g. example AOI reports) that may be opened without URL synthesis.
@@ -59,7 +59,7 @@ Reason: many agent environments (including the one used for DTE-style inspection
 
 Required navigation sequence for AOI Reports (always)
 Open the portal home:
-https://georgemadlis.github.io/eudr-dmi-gil-digital-twin/site/index.html
+https://single-earth.github.io/eudr-dmi-gil-digital-twin/site/index.html
 
 Click AOI Reports → open runs list:
 
@@ -82,10 +82,10 @@ non-synthesized references used for demonstrations, DAO review, and testing.
 Authorized example artefacts:
 
 Example AOI report (HTML):
-https://georgemadlis.github.io/eudr-dmi-gil-digital-twin/site/aoi_reports/runs/example/report.html
+https://single-earth.github.io/eudr-dmi-gil-digital-twin/site/aoi_reports/runs/example/report.html
 
 Example AOI report (JSON):
-https://georgemadlis.github.io/eudr-dmi-gil-digital-twin/site/aoi_reports/runs/example/aoi_report.json
+https://single-earth.github.io/eudr-dmi-gil-digital-twin/site/aoi_reports/runs/example/aoi_report.json
 
 These links MAY be opened directly by the DTE and treated as equivalent
 to artefacts discovered via portal navigation.

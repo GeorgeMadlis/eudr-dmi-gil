@@ -12,7 +12,7 @@ AOI report structure and acceptance criteria are inspected via the Digital Twin 
 
 - **Authoritative generation happens here** (this repo).
 - **Publication/hosting happens elsewhere** in the Digital Twin portal repository:
-  - https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin
+  - https://github.com/single-earth/eudr-dmi-gil-digital-twin
 - **Client AOI outputs are private by default** and remain in operator-controlled storage (evidence root/MinIO). Any export to the Digital Twin is an **example/public export only**.
 
 ## Evidence bundles
@@ -97,6 +97,6 @@ Default target path in the DT repo:
 
 - [README.md](../../README.md)
 - [docs/governance/roles_and_workflow.md](../governance/roles_and_workflow.md)
-- Digital Twin DTE Instructions (Canonical): https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin/blob/main/docs/dte_instructions.md
-- Digital Twin Inspection Index: https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin/blob/main/docs/INSPECTION_INDEX.md
-- https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin
+- Digital Twin DTE Instructions (Canonical): https://github.com/single-earth/eudr-dmi-gil-digital-twin/blob/main/docs/dte_instructions.md
+- Digital Twin Inspection Index: https://github.com/single-earth/eudr-dmi-gil-digital-twin/blob/main/docs/INSPECTION_INDEX.md
+- https://github.com/single-earth/eudr-dmi-gil-digital-twin

@@ -3,7 +3,7 @@
 Bundle: example
 AOI: estonia_testland1
 Generated (UTC): 2026-02-11T11:55:43+00:00
-Published report: https://georgemadlis.github.io/eudr-dmi-gil-digital-twin/site/aoi_reports/runs/example/report.html
+Published report: https://single-earth.github.io/eudr-dmi-gil-digital-twin/site/aoi_reports/runs/example/report.html
 
 ## Added paths
 - (none)
