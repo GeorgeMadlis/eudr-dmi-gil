@@ -12,6 +12,7 @@ from .hansen_acquire import (
     HANSEN_BASE_DIR_NAME,
     HANSEN_URL_TEMPLATE_ENV,
     HansenLayerEntry,
+    _format_url,
     ensure_hansen_layers_present,
     hansen_default_base_dir,
     resolve_tile_dir,
@@ -124,7 +125,7 @@ def ensure_hansen_for_aoi(
         if minio_cache_enabled:
             for layer in layers_list:
                 local_path = resolve_tile_dir(tile_id) / f"{layer}.tif"
-                source_url = url_template.format(layer=layer, tile_id=tile_id)
+                source_url = _format_url(url_template, tile_id=tile_id, layer=layer)
                 key = _cache_key(tile_id, layer)
                 # get_file_if_exists handles all three cases:
                 #   1. Local file present and SHA-256 matches stored metadata → skip download.
