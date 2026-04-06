@@ -38,3 +38,26 @@ All implementation changes should be traceable back to a DAO proposal grounded v
 - [docs/operations/environment_setup.md](operations/environment_setup.md)
 - [docs/operations/minio_setup.md](operations/minio_setup.md)
 - [docs/operations/migration_runbook.md](operations/migration_runbook.md)
+
+## Schemas (Output Contracts)
+
+These JSON schemas are the authoritative contracts for all published artefacts.
+
+- [schemas/reports/aoi_report_v2.schema.json](../schemas/reports/aoi_report_v2.schema.json)
+- [schemas/reports/bundle_manifest_v1.schema.json](../schemas/reports/bundle_manifest_v1.schema.json)
+- [schemas/reports/site_bundle_v1.schema.json](../schemas/reports/site_bundle_v1.schema.json)
+
+## Developer Onboarding
+
+- [CLAUDE.md](../CLAUDE.md) — primary onboarding guide for developers and AI agents; covers commands, architecture, publish flow, and evidence integrity rules.
+
+## CI Workflows
+
+- [.github/workflows/pr-checks.yml](../.github/workflows/pr-checks.yml) — runs tests and lint on every pull request
+- [.github/workflows/check-dt-freshness.yml](../.github/workflows/check-dt-freshness.yml) — daily workflow that regenerates the example AOI bundle and compares it to the published Digital Twin content; fails if the DT is stale
+
+## Data Source Registry (MCP Servers)
+
+The `src/mcp_servers/` directory contains MCP-compatible server stubs for each external data source consumed by the pipeline. Each stub declares the source URL, expected data format, and the acquisition contract. These stubs are the canonical entry points for agents discovering or updating data source links.
+
+- [src/mcp_servers/](../src/mcp_servers/) — one module per data source (Hansen GFC, Maa-amet WFS, etc.)
