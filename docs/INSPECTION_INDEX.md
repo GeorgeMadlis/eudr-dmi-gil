@@ -4,10 +4,27 @@ This document is the canonical implementation-grounding index for the
 EUDR DAO Digital Twin Engineer (DTE) and for developers working from DAO
 inspection findings.
 
+For every governance / inspection session, DTE should open this file early,
+before making any implementation recommendation. If this file was not opened in
+the session, implementation grounding is incomplete and should be treated as an
+**Evidence gap**.
+
 Use this file to answer two questions:
 
 1. Which repository is authoritative for this question?
 2. Which document should I open next for grounded evidence?
+
+## Current working repos
+
+During the current development cycle, use the active `GeorgeMadlis/*` forks as
+the working GitHub repositories:
+
+- `https://github.com/GeorgeMadlis/eudr-dmi-gil`
+- `https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin`
+
+The upstream `single-earth/*` repositories may lag behind during active fork
+development. When repo URLs matter for current work, prefer the forks until the
+upstream repositories are updated.
 
 ## Authority boundary
 
