@@ -29,12 +29,19 @@ def _make_report_html(generated: str, relpaths: list[str]) -> str:
 
 
 class FetchStub:
-    def __init__(self, html: str, artifacts: dict[str, bytes]) -> None:
+    def __init__(
+        self,
+        html: str,
+        artifacts: dict[str, bytes],
+        *,
+        report_url: str = REPORT_URL,
+    ) -> None:
         self.html = html.encode("utf-8")
         self.artifacts = artifacts
+        self.report_url = report_url
 
     def __call__(self, url: str, headers: dict[str, str] | None = None):
-        if url == REPORT_URL:
+        if url == self.report_url:
             return 200, self.html, {}
         if url in self.artifacts:
             return 200, self.artifacts[url], {}
@@ -138,3 +145,43 @@ def test_missing_local_exit_three(tmp_path: Path) -> None:
     out_dir = tmp_path / "out"
     diff_summary = json.loads((out_dir / "diff_summary.json").read_text(encoding="utf-8"))
     assert diff_summary["diff"]["missing_locally"] == relpaths
+
+
+def test_published_report_url_env_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    relpaths = ["reports/aoi_report_v2/estonia_testland1.json"]
+    generated = "2026-02-06T10:57:34+00:00"
+    override_url = "https://example.test/dev-fork/site/bundles/runs/example/report.html"
+    html = _make_report_html(generated, relpaths)
+
+    local_root = tmp_path / "run"
+    path = local_root / relpaths[0]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"same")
+
+    artifact_urls = {
+        f"https://example.test/dev-fork/site/bundles/runs/example/{relpaths[0]}": b"same"
+    }
+    fetch = FetchStub(html, artifact_urls, report_url=override_url)
+    monkeypatch.setattr(detector, "_fetch_url", fetch)
+    monkeypatch.setenv("EUDR_DMI_PUBLISHED_REPORT_URL", override_url)
+
+    instructions = tmp_path / "dte_instructions.txt"
+    instructions.write_text("DTE instructions\n", encoding="utf-8")
+    status = detector.run(
+        [
+            "--local-run-root",
+            str(local_root),
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "--baseline-manifest",
+            str(tmp_path / "baseline.json"),
+            "--instructions-file",
+            str(instructions),
+            "--out-dir",
+            str(tmp_path / "out"),
+        ]
+    )
+
+    assert status == 0
+    summary = json.loads((tmp_path / "out" / "diff_summary.json").read_text(encoding="utf-8"))
+    assert summary["published_report_url"] == override_url

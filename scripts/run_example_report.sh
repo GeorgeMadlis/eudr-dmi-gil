@@ -55,7 +55,6 @@ fi
 
 rm -rf "$EVIDENCE_ROOT" "$OUTPUT_ROOT"
 mkdir -p "$EVIDENCE_ROOT"
-   python "$REPO_ROOT/scripts/export_aoi_reports_staging.py"
 export EUDR_DMI_EVIDENCE_ROOT="$EVIDENCE_ROOT"
 export EUDR_DMI_AOI_STAGING_DIR="$OUTPUT_ROOT"
 export EUDR_DMI_HANSEN_TILE_DIR="$HANSEN_TILE_DIR"
@@ -85,17 +84,18 @@ else
 fi
 
 if [[ ! -f "$HANSEN_TILE_DIR/treecover2000.tif" || ! -f "$HANSEN_TILE_DIR/lossyear.tif" ]]; then
-  python - <<'PY'
+  python - "$AOI_PATH" "$HANSEN_TILE_DIR" <<'PY'
 from pathlib import Path
 import json
+import sys
 import numpy as np
 import rasterio
 from rasterio.transform import from_bounds
+from eudr_dmi_gil.deps.hansen_tiles import hansen_tile_ids_for_bbox
 
-tile_dir = Path("""${HANSEN_TILE_DIR}""")
-tile_dir.mkdir(parents=True, exist_ok=True)
+aoi_path = Path(sys.argv[1])
+tile_root = Path(sys.argv[2])
 
-aoi_path = Path("""${AOI_PATH}""")
 data = json.loads(aoi_path.read_text(encoding="utf-8"))
 coords = []
 if data.get("type") == "FeatureCollection":
@@ -117,6 +117,10 @@ minx -= pad
 miny -= pad
 maxx += pad
 maxy += pad
+
+tile_ids = hansen_tile_ids_for_bbox((minx, miny, maxx, maxy))
+tile_dir = tile_root / (tile_ids[0] if tile_ids else "synthetic")
+tile_dir.mkdir(parents=True, exist_ok=True)
 
 width = 32
 height = 32
@@ -155,6 +159,7 @@ python -m eudr_dmi_gil.reports.cli \
   --bundle-id "$RUN_ID" \
   --out-format both \
   --enable-hansen-post-2020-loss \
+  --hansen-tile-dir "$HANSEN_TILE_DIR" \
   "${hansen_args[@]}" \
   --metric area_ha=12.34:ha:example:deterministic \
   --metric forest_cover_fraction=0.56:fraction:example:deterministic
@@ -249,18 +254,23 @@ if [[ -f "$SUMMARY_JSON" ]]; then
   printf "%s\n" "- $abs_summary_json"
 fi
 
-set +e
-python3 "$REPO_ROOT/scripts/detect_example_bundle_artifact_changes.py" --local-run-root out/site_bundle/aoi_reports/runs/example
-detect_status=$?
-set -e
-if [[ $detect_status -eq 0 ]]; then
-  echo "DTE setup update: not required (no artifact change detected)."
-elif [[ $detect_status -eq 3 ]]; then
-  echo "DTE setup update REQUIRED: artifacts changed."
-  echo "Open: out/dte_update/dte_setup_patch.md (copy/paste into DTE GPT setup)"
+RUN_DTE_UPDATE_DETECTION="${RUN_DTE_UPDATE_DETECTION:-1}"
+if [[ "$RUN_DTE_UPDATE_DETECTION" == "0" ]]; then
+  echo "DTE setup update detection skipped."
 else
-  echo "ERROR: DTE update detection failed." >&2
-  exit 2
+  set +e
+  python3 "$REPO_ROOT/scripts/detect_example_bundle_artifact_changes.py" --local-run-root out/site_bundle/aoi_reports/runs/example
+  detect_status=$?
+  set -e
+  if [[ $detect_status -eq 0 ]]; then
+    echo "DTE setup update: not required (no artifact change detected)."
+  elif [[ $detect_status -eq 3 ]]; then
+    echo "DTE setup update REQUIRED: artifacts changed."
+    echo "Open: out/dte_update/dte_setup_patch.md (copy/paste into DTE GPT setup)"
+  else
+    echo "ERROR: DTE update detection failed." >&2
+    exit 2
+  fi
 fi
 
 if [[ "$PUBLISH_DT" == "1" ]]; then

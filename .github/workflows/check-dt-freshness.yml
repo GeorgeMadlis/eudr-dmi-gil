@@ -24,9 +24,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
+          pip install -r requirements-methods.txt
 
       - name: Generate example AOI bundle
+        env:
+          HANSEN_MINIO_CACHE: "0"
+          RUN_DTE_UPDATE_DETECTION: "0"
         run: scripts/run_example_report.sh
 
       - name: Compare generated example bundle to published Digital Twin content
+        env:
+          EUDR_DMI_PUBLISHED_REPORT_URL: "https://georgemadlis.github.io/eudr-dmi-gil-digital-twin/site/bundles/runs/example/report.html"
         run: python scripts/detect_example_bundle_artifact_changes.py

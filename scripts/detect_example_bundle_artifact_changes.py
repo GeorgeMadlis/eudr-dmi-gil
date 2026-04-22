@@ -17,6 +17,11 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
 
+DEFAULT_PUBLISHED_REPORT_URL = (
+    "https://georgemadlis.github.io/eudr-dmi-gil-digital-twin/site/bundles/"
+    "runs/example/report.html"
+)
+
 
 @dataclass(frozen=True)
 class ArtifactEntry:
@@ -433,10 +438,7 @@ def run(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--published-report-url",
-        default=(
-            "https://single-earth.github.io/eudr-dmi-gil-digital-twin/site/bundles/"
-            "runs/example/report.html"
-        ),
+        default=os.environ.get("EUDR_DMI_PUBLISHED_REPORT_URL", DEFAULT_PUBLISHED_REPORT_URL),
     )
     parser.add_argument("--cache-dir", default=".cache/dt_example")
     parser.add_argument("--baseline-manifest", default="docs/baselines/dt_example_manifest.json")
