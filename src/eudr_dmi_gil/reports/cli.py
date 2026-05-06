@@ -18,7 +18,11 @@ from .bundle import bundle_dir as compute_bundle_dir
 from .bundle import compute_sha256
 from .bundle import resolve_evidence_root, write_manifest
 from .determinism import canonical_json_bytes, sha256_bytes, write_bytes, write_json
-from eudr_dmi_gil.deps.hansen_acquire import build_entries_from_provenance, infer_hansen_latest_year
+from eudr_dmi_gil.deps.hansen_acquire import (
+    build_entries_from_provenance,
+    infer_hansen_latest_year,
+    portable_hansen_local_path,
+)
 from eudr_dmi_gil.deps.hansen_tiles import load_aoi_bbox
 from eudr_dmi_gil.geo.aoi_area import compute_aoi_geodesic_area_ha
 from eudr_dmi_gil.analysis.hansen_parcels import (
@@ -1236,7 +1240,7 @@ def main(argv: list[str] | None = None) -> int:
                 {
                     "tile_id": e.tile_id,
                     "layer": e.layer,
-                    "local_path": e.local_path,
+                    "local_path": portable_hansen_local_path(e.local_path),
                     "sha256": e.sha256,
                     "size_bytes": e.size_bytes,
                     "source_url": e.source_url,
@@ -1658,7 +1662,7 @@ def main(argv: list[str] | None = None) -> int:
                     {
                         "tile_id": e.tile_id,
                         "layer": e.layer,
-                        "local_path": e.local_path,
+                        "local_path": portable_hansen_local_path(e.local_path),
                         "sha256": e.sha256,
                         "size_bytes": e.size_bytes,
                         "source_url": e.source_url,

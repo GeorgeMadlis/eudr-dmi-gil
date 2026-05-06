@@ -214,6 +214,31 @@ def build_entries_from_provenance(
     return entries
 
 
+def portable_hansen_local_path(local_path: str) -> str:
+    path = Path(local_path)
+    if path.parent.name and path.name:
+        return f"{path.parent.name}/{path.name}"
+    return path.as_posix()
+
+
+def _manifest_created_utc() -> str:
+    override = os.environ.get("EUDR_DMI_GENERATED_AT_UTC", "").strip()
+    if override:
+        try:
+            created = datetime.fromisoformat(override.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError(
+                "EUDR_DMI_GENERATED_AT_UTC must be an ISO-8601 timestamp"
+            ) from exc
+        if created.tzinfo is None:
+            raise ValueError("EUDR_DMI_GENERATED_AT_UTC must include a timezone")
+        return created.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace(
+            "+00:00", "Z"
+        )
+
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def write_tiles_manifest(
     manifest_path: Path,
     *,
@@ -226,9 +251,9 @@ def write_tiles_manifest(
     derived_relpaths: dict[str, str],
 ) -> None:
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    created_utc = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    created_utc = _manifest_created_utc()
     ordered_entries = sorted(
-        entries, key=lambda e: (e.tile_id, e.layer, e.local_path)
+        entries, key=lambda e: (e.tile_id, e.layer, portable_hansen_local_path(e.local_path))
     )
     payload = {
         "dataset_version": dataset_version,
@@ -242,7 +267,7 @@ def write_tiles_manifest(
             {
                 "tile_id": e.tile_id,
                 "layer": e.layer,
-                "local_path": e.local_path,
+                "local_path": portable_hansen_local_path(e.local_path),
                 "sha256": e.sha256,
                 "size_bytes": e.size_bytes,
                 "source_url": e.source_url,
