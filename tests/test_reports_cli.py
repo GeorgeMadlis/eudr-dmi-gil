@@ -54,6 +54,7 @@ def test_cli_golden_run_creates_bundle(tmp_path: Path) -> None:
     evidence_root = tmp_path / "evidence"
     env = os.environ.copy()
     env["EUDR_DMI_EVIDENCE_ROOT"] = str(evidence_root)
+    env["EUDR_DMI_GENERATED_AT_UTC"] = "2026-02-19T12:47:49+00:00"
 
     bundle_id = "bundle-001"
     aoi_id = "aoi-123"
@@ -88,7 +89,7 @@ def test_cli_golden_run_creates_bundle(tmp_path: Path) -> None:
 
     assert proc.returncode == 0, proc.stderr
 
-    bundle_date = datetime.now(timezone.utc).date().strftime("%Y-%m-%d")
+    bundle_date = "2026-02-19"
     bundle_dir = evidence_root / bundle_date / bundle_id
 
     assert bundle_dir.exists()
@@ -110,6 +111,7 @@ def test_cli_golden_run_creates_bundle(tmp_path: Path) -> None:
 
     # report.html should link to declared HTML artifacts if present.
     report_obj = json.loads(report_json.read_text(encoding="utf-8"))
+    assert report_obj["generated_at_utc"] == "2026-02-19T12:47:49+00:00"
     html_relpaths = [
         item.get("relpath")
         for item in report_obj.get("evidence_artifacts", [])

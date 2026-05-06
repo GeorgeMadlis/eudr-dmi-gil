@@ -28,12 +28,22 @@ from eudr_dmi_gil.analysis.hansen_parcels import (
 from .policy_refs import collect_policy_mapping_refs
 
 
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+def _resolve_generated_at_utc() -> tuple[str, datetime]:
+    override = os.environ.get("EUDR_DMI_GENERATED_AT_UTC", "").strip()
+    if override:
+        try:
+            generated_dt = datetime.fromisoformat(override.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError(
+                "EUDR_DMI_GENERATED_AT_UTC must be an ISO-8601 timestamp"
+            ) from exc
+        if generated_dt.tzinfo is None:
+            raise ValueError("EUDR_DMI_GENERATED_AT_UTC must include a timezone")
+        generated_dt = generated_dt.astimezone(timezone.utc).replace(microsecond=0)
+        return generated_dt.isoformat(), generated_dt
 
-
-def _utc_now_compact() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).strftime("%Y%m%dT%H%M%SZ")
+    generated_dt = datetime.now(timezone.utc).replace(microsecond=0)
+    return generated_dt.isoformat(), generated_dt
 
 
 @contextmanager
@@ -715,17 +725,17 @@ def main(argv: list[str] | None = None) -> int:
 
     aoi_id = _sanitize_id(args.aoi_id)
 
-    generated_at_utc = _utc_now_iso()
+    generated_at_utc, generated_dt = _resolve_generated_at_utc()
 
     bundle_id = args.bundle_id
     if not bundle_id:
         # Deterministic derivation from AOI id + timestamp (timestamp is explicit).
-        stamp = _utc_now_compact()
+        stamp = generated_dt.strftime("%Y%m%dT%H%M%SZ")
         bundle_id = f"{aoi_id}-{stamp}"
     bundle_id = _sanitize_id(bundle_id)
 
     # Bundle date is UTC date.
-    bundle_date = datetime.now(timezone.utc).date().strftime("%Y-%m-%d")
+    bundle_date = generated_dt.date().strftime("%Y-%m-%d")
 
     bdir = compute_bundle_dir(bundle_id=bundle_id, bundle_date=bundle_date)
     resolve_evidence_root()
