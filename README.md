@@ -325,3 +325,7 @@ https://github.com/GeorgeMadlis/eudr-dmi-gil-digital-twin
 This work has been developed on the author’s personal time and is
 intended for use by the Single.Earth Foundation.  
 No formal affiliation or endorsement is implied unless explicitly stated.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
