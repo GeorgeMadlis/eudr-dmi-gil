@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import html
+import io
 import json
 import os
 import struct
@@ -38,6 +39,28 @@ EVIDENCE_MAP_PIXEL_HEIGHT = round(EVIDENCE_MAP_PIXEL_WIDTH / _EVIDENCE_MAP_BOX_A
 COVER_HERO_PIXEL_WIDTH = 640
 COVER_HERO_PIXEL_HEIGHT = round(COVER_HERO_PIXEL_WIDTH * 841.8897637795277 / 595.2755905511812)
 
+# Cover (page 1) and regional-overview (page 4) basemaps are composited from the Esri World
+# Imagery export service instead of the locally pinned Sentinel-2 GeoTIFFs every other evidence
+# image in this module still uses (01_aoi_satellite.png, 01b_..., 02-06). This is a deliberate,
+# per-image basemap-provider substitution, not a change to the underlying JRC/Hansen/commodity
+# analysis pipeline - see the task bundle's reproduction docs for why these two specifically were
+# switched. Unlike the checked-in Sentinel-2 rasters, Esri World Imagery is a live remote service
+# with no content hash to pin: a rerun can legitimately return non-byte-identical tiles if Esri's
+# backing mosaic has been refreshed since the previous run.
+ESRI_WORLDIMAGERY_EXPORT_URL = (
+    "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export"
+)
+ESRI_WORLDIMAGERY_TILE_URL_TEMPLATE = (
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+)
+ESRI_WORLDIMAGERY_DATASET_TITLE = "Esri World Imagery"
+ESRI_WORLDIMAGERY_DATASET_VERSION = "world_imagery_current"
+ESRI_WORLDIMAGERY_SOURCE_URL = (
+    "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer"
+)
+ESRI_WORLDIMAGERY_ATTRIBUTION = "Esri, Maxar, Earthstar Geographics, and the GIS User Community"
+ESRI_WORLDIMAGERY_LICENSE = "Esri master license agreement (basemap use permitted for web/print display with attribution)"
+
 # Page 7 (Satellite Evidence, see `new_page(7, ...)` below) draws the before/after comparison
 # into an A4 box capped at (content width x BEFORE_AFTER_BOX_HEIGHT pt) - the same technique as
 # `_EVIDENCE_MAP_BOX_ASPECT` above but sized for this page's own available space (a swatch
@@ -67,8 +90,21 @@ BEFORE_AFTER_PANEL_PIXEL_WIDTH = round(
 # from loss elsewhere in the AOI. Both colors match the standalone `commodity_layer`/`intersection`
 # evidence artifacts already produced by `materialize_evidence_pngs`, so every view of this data
 # agrees.
-_COMMODITY_OVERLAY_COLOR = (139, 90, 43, 230)
-_COMMODITY_OVERLAY_ALPHA = 0.42
+#
+# Round 26 (elevated from a Brazil/coffee task-bundle finding): the original commodity color,
+# (139, 90, 43) - a "natural-looking" brown chosen to suggest bare/cropland soil - measured almost
+# indistinguishable from the real basemap color under real coffee-plantation pixels for a live-GEE
+# AOI (~RGB(140, 95, 65) basemap vs (139, 90, 43) overlay), so blending at any reasonable alpha
+# shifted the composited pixel by only a few RGB units: a genuinely invisible overlay, not a
+# rendering failure (the mask rasterized and blended correctly; see
+# `coffee_brazil_minas_gerais_eudr_compliant` bundle round 4). Real-world commodity/cropland colors
+# cluster in the same brown/tan/green hue family as most satellite basemap imagery, so any
+# "natural" color risks the same failure on some AOI's basemap. The overlay color is now a
+# saturated blue with no natural-terrain analogue, chosen to sit far in hue from forest-green,
+# loss-red, intersection-purple, and the AOI-boundary yellow already in use - and the overlay alpha
+# is raised so the blend is assertive rather than barely-there.
+_COMMODITY_OVERLAY_COLOR = (30, 136, 229, 230)
+_COMMODITY_OVERLAY_ALPHA = 0.6
 _COMMODITY_LOSS_OVERLAY_COLOR = (102, 45, 145, 230)
 _COMMODITY_LOSS_OVERLAY_ALPHA = 0.85
 
@@ -212,14 +248,26 @@ def _references(layers: Mapping[str, "LayerEntry"]) -> list[dict[str, Any]]:
             }
         )
     commodity_layer = layers.get("commodity")
-    if getattr(commodity_layer, "available", False) and "mapbiomas" in (
-        getattr(commodity_layer, "dataset", "") or ""
-    ).lower():
+    commodity_dataset = (getattr(commodity_layer, "dataset", "") or "").lower()
+    if getattr(commodity_layer, "available", False) and "mapbiomas" in commodity_dataset:
         refs.append(
             {
                 "id": "mapbiomas",
                 "citation": "MapBiomas Brazil Project - Collection of Brazilian land cover and land use maps.",
                 "url": "https://brasil.mapbiomas.org/",
+            }
+        )
+    if getattr(commodity_layer, "available", False) and (
+        "forest data partnership" in commodity_dataset or "fdp" in commodity_dataset
+    ):
+        refs.append(
+            {
+                "id": "forest_data_partnership",
+                "citation": (
+                    "Forest Data Partnership - commodity probability model (see the "
+                    "report's commodity block for the exact asset id and dataset version)."
+                ),
+                "url": "https://github.com/google/forest-data-partnership",
             }
         )
     satellite_layer = layers.get("satellite")
@@ -229,6 +277,21 @@ def _references(layers: Mapping[str, "LayerEntry"]) -> list[dict[str, Any]]:
                 "id": "sentinel2",
                 "citation": "Contains modified Copernicus Sentinel data, accessed via the AWS Earth Search STAC API.",
                 "url": "https://earth-search.aws.element84.com/v1",
+            }
+        )
+    cover_hero_layer = layers.get("cover_hero")
+    regional_overview_layer = layers.get("regional_overview")
+    if getattr(cover_hero_layer, "available", False) or getattr(regional_overview_layer, "available", False):
+        refs.append(
+            {
+                "id": "esri_world_imagery",
+                "citation": (
+                    f"Basemap imagery: {ESRI_WORLDIMAGERY_ATTRIBUTION}, via the Esri World "
+                    "Imagery export service (cover page and regional-overview page only; every "
+                    "other satellite-context image in this report uses Sentinel-2, see the "
+                    "sentinel2 reference above)."
+                ),
+                "url": ESRI_WORLDIMAGERY_SOURCE_URL,
             }
         )
     return refs
@@ -267,6 +330,12 @@ def materialize_evidence_pngs(
     satellite_recent_path = (
         bundle_root / satellite_recent_ref if satellite_recent_ref and (bundle_root / satellite_recent_ref).is_file() else None
     )
+    satellite_baseline_ref = _ref_relpath(satellite_outputs, "baseline_raster_ref")
+    satellite_baseline_path = (
+        bundle_root / satellite_baseline_ref
+        if satellite_baseline_ref and (bundle_root / satellite_baseline_ref).is_file()
+        else None
+    )
     artifacts["aoi_satellite"] = _write_satellite_context_png(
         bundle_root=bundle_root,
         raster_relpath=satellite_recent_ref,
@@ -274,13 +343,29 @@ def materialize_evidence_pngs(
         output_path=evidence_dir / "01_aoi_satellite.png",
     )
 
-    artifacts["cover_hero"] = _write_satellite_context_png(
-        bundle_root=bundle_root,
-        raster_relpath=satellite_recent_ref,
+    # The cover hero basemap is fetched live from Esri World Imagery instead of the local
+    # Sentinel-2 "recent" raster every other satellite-context image on this AOI still uses (see
+    # the ESRI_WORLDIMAGERY_* constants above for why: a deliberate, per-image basemap-provider
+    # substitution, not a pipeline change).
+    artifacts["cover_hero"] = _write_esri_satellite_context_png(
         aoi_geom_wgs84=aoi_geom_wgs84,
         output_path=evidence_dir / "08_cover_hero.png",
         width=COVER_HERO_PIXEL_WIDTH,
         height=COVER_HERO_PIXEL_HEIGHT,
+    )
+
+    # Round 25: a plain satellite basemap sized to the same EVIDENCE_MAP_PIXEL_WIDTH/HEIGHT box
+    # as jrc_forest_2020/forest_loss/commodity_layer/intersection below, so pages 5/6 can fall
+    # back to it edge-to-edge (no letterboxing) whenever there is no mask to overlay - unlike
+    # `aoi_satellite` above, which is fixed at 640x420 for the page-1/cover box's own aspect and
+    # would only partially fill the evidence-map box's different aspect ratio.
+    artifacts["satellite_evidence_map"] = _write_satellite_context_png(
+        bundle_root=bundle_root,
+        raster_relpath=satellite_recent_ref,
+        aoi_geom_wgs84=aoi_geom_wgs84,
+        output_path=evidence_dir / "01b_aoi_satellite_evidence_map.png",
+        width=EVIDENCE_MAP_PIXEL_WIDTH,
+        height=EVIDENCE_MAP_PIXEL_HEIGHT,
     )
 
     # Resolved ahead of the baseline/loss evidence maps below (round 18) so pages 5/6 can layer the
@@ -301,38 +386,78 @@ def materialize_evidence_pngs(
     )
 
     baseline_ref = _ref_relpath(jrc_outputs, "baseline_mask_ref")
-    artifacts["jrc_forest_2020"] = _png_from_geojson_ref(
-        bundle_root=bundle_root,
-        relpath=baseline_ref,
+    baseline_mask_path = (
+        bundle_root / baseline_ref if baseline_ref and (bundle_root / baseline_ref).is_file() else None
+    )
+    loss_ref = _ref_relpath(jrc_outputs, "loss_mask_ref")
+    loss_mask_path = bundle_root / loss_ref if loss_ref and (bundle_root / loss_ref).is_file() else None
+
+    # Round 26: this composite ("Forest Baseline 2020", page 5) is now drawn over the actual 2020
+    # satellite raster instead of the 2025 "recent" one every mask-over-basemap composite
+    # previously used regardless of the page's own subject year - every other evidence-map page's
+    # basemap year now matches its own subject year (page 6/current-state below is 2025-over-2025;
+    # this page is 2020-over-2020). Falls back to the recent raster only if no 2020 raster was
+    # actually fetched for this AOI (never fabricates a 2020-labeled image from later imagery when
+    # a real 2020 one is simply absent - it draws nothing rather than a mislabeled substitute).
+    artifacts["jrc_forest_2020"] = _layered_png_from_geojson_refs(
+        layers=[
+            (baseline_mask_path, (33, 122, 72), 0.62),
+            (commodity_mask_path, _COMMODITY_OVERLAY_COLOR[:3], _COMMODITY_OVERLAY_ALPHA),
+        ],
         output_path=evidence_dir / "02_jrc_forest_2020.png",
-        color=(33, 122, 72, 230),
-        unavailable_reason="jrc_forest_2020_mask_not_available",
-        background_raster_path=satellite_recent_path,
+        background_raster_path=satellite_baseline_path or satellite_recent_path,
         aoi_geom_wgs84=aoi_geom_wgs84,
-        overlay_path=commodity_mask_path,
-        overlay_color=_COMMODITY_OVERLAY_COLOR,
-        overlay_alpha=_COMMODITY_OVERLAY_ALPHA,
+        unavailable_reason="jrc_forest_2020_mask_not_available",
     )
 
-    loss_ref = _ref_relpath(jrc_outputs, "loss_mask_ref")
-    artifacts["forest_loss"] = _png_from_geojson_ref(
-        bundle_root=bundle_root,
-        relpath=loss_ref,
+    # Round 26: this composite ("Forest Loss After 2020", page 6) used to draw only the raw
+    # loss-mask polygon (plus, when present, the loss-and-commodity intersection); its legend
+    # already carried a "Forest (JRC 2020 baseline)" row next to that, but no forest-green pixel
+    # was ever actually rasterized onto this image - only onto the separate page-5 composite. That
+    # is the same class of defect as the commodity-overlay-color problem above (a legend row
+    # advertising a layer the image doesn't actually draw), just never previously noticed because
+    # it required checking the rendered pixels against the legend rather than a color swatch
+    # against a background color. It also meant any AOI with zero measured loss fell back to a
+    # plain, no-overlay satellite basemap, because the sole mask it ever tried to rasterize (the
+    # loss mask) is empty by definition whenever loss is zero.
+    #
+    # Both are fixed together by making this composite's primary layer "current forest" - the JRC
+    # 2020 baseline forest polygon minus whatever the Hansen loss mask actually removed from it
+    # (identical to the baseline polygon when loss is zero, a proper geometric subset of it
+    # otherwise) - stacked with the same commodity overlay page 5 uses, then the raw loss mask on
+    # top (present only when loss is nonzero), then the loss-and-commodity intersection on top of
+    # that (present only where loss actually fell inside the commodity layer). Every layer in the
+    # stack is real, rasterized geometry, never a placeholder: `render_canonical_pdf` gates each
+    # legend row on whether its corresponding layer here actually contributed nonzero area (see the
+    # `new_page(6, ...)` block). A zero-loss AOI now renders forest + commodity context on page 6
+    # instead of a bare basemap; a nonzero-loss AOI now actually shows the surviving-forest pixels
+    # its legend already claimed.
+    current_forest_geom = _load_layer_geometry(baseline_mask_path)
+    loss_geom_for_diff = _load_layer_geometry(loss_mask_path)
+    if current_forest_geom is not None and loss_geom_for_diff is not None:
+        try:
+            current_forest_geom = current_forest_geom.difference(loss_geom_for_diff)
+        except Exception:
+            pass  # keep the undifferenced baseline geometry rather than fail the whole composite
+
+    artifacts["forest_loss"] = _layered_png_from_geojson_refs(
+        layers=[
+            (current_forest_geom, (33, 122, 72), 0.62),
+            (commodity_mask_path, _COMMODITY_OVERLAY_COLOR[:3], _COMMODITY_OVERLAY_ALPHA),
+            (loss_mask_path, (198, 40, 40), 0.75),
+            (commodity_loss_overlap_path, _COMMODITY_LOSS_OVERLAY_COLOR[:3], _COMMODITY_LOSS_OVERLAY_ALPHA),
+        ],
         output_path=evidence_dir / f"03_forest_loss_2021_{effective_end_year}.png",
-        color=(198, 40, 40, 230),
-        unavailable_reason="post_2020_loss_mask_not_available",
         background_raster_path=satellite_recent_path,
         aoi_geom_wgs84=aoi_geom_wgs84,
-        overlay_path=commodity_loss_overlap_path,
-        overlay_color=_COMMODITY_LOSS_OVERLAY_COLOR,
-        overlay_alpha=_COMMODITY_LOSS_OVERLAY_ALPHA,
+        unavailable_reason="post_2020_loss_mask_not_available",
     )
 
     artifacts["commodity_layer"] = _png_from_geojson_ref(
         bundle_root=bundle_root,
         relpath=commodity_mask_ref,
         output_path=evidence_dir / "04_commodity_layer.png",
-        color=(139, 90, 43, 230),
+        color=_COMMODITY_OVERLAY_COLOR,
         unavailable_reason="usable_commodity_layer_not_available",
         background_raster_path=satellite_recent_path,
         aoi_geom_wgs84=aoi_geom_wgs84,
@@ -349,7 +474,25 @@ def materialize_evidence_pngs(
         aoi_geom_wgs84=aoi_geom_wgs84,
     )
 
-    satellite_baseline_ref = _ref_relpath(satellite_outputs, "baseline_raster_ref")
+    # A standalone interactive Leaflet map: this AOI's own boundary over an Esri World Imagery
+    # basemap, with the same JRC 2020 baseline / forest loss / commodity / intersection masks the
+    # static evidence PNGs above draw, exposed here as independently toggle-able overlay layers
+    # instead of one fixed composite - report.html's "Image Downloads" list links to this single
+    # file in place of separate per-layer PNG downloads (see render_canonical_html). Moved below
+    # the mask-path resolution above (round 7) so it can be given real overlay geometry instead of
+    # just the AOI outline; colors match the static composites' own layer colors for consistency.
+    artifacts["aoi_satellite_map"] = _write_esri_leaflet_aoi_map_html(
+        aoi_geom_wgs84=aoi_geom_wgs84,
+        aoi_name=str(report.get("aoi_id", "unknown")),
+        output_path=evidence_dir / "01c_aoi_satellite_map.html",
+        overlay_layers=[
+            ("JRC Global Forest Cover 2020", baseline_mask_path, (33, 122, 72)),
+            (f"Forest loss 2021-{effective_end_year}", loss_mask_path, (198, 40, 40)),
+            ("Commodity layer", commodity_mask_path, _COMMODITY_OVERLAY_COLOR[:3]),
+            ("Intersection", commodity_loss_overlap_path, _COMMODITY_LOSS_OVERLAY_COLOR[:3]),
+        ],
+    )
+
     artifacts["before_after"] = _write_before_after_png(
         bundle_root=bundle_root,
         baseline_relpath=satellite_baseline_ref,
@@ -358,14 +501,15 @@ def materialize_evidence_pngs(
         output_path=evidence_dir / "06_before_after.png",
     )
 
-    regional_ref = _ref_relpath(satellite_outputs, "regional_raster_ref")
     admin_boundaries_ref = _ref_relpath(satellite_outputs, "regional_admin_boundaries_ref")
-    artifacts["regional_overview"] = _write_regional_overview_png(
+    # Regional-overview basemap also switched to the live Esri World Imagery export service (see
+    # the cover_hero note above); the real admin-boundary GeoJSON overlay is unaffected and still
+    # comes from the locally pinned fetch (scripts/fetch_admin_boundaries.py).
+    artifacts["regional_overview"] = _write_regional_overview_png_esri(
         bundle_root=bundle_root,
-        raster_relpath=regional_ref or satellite_recent_ref,
         aoi_geom_wgs84=aoi_geom_wgs84,
         output_path=evidence_dir / "07_regional_overview.png",
-        pad_factor=3.0 if regional_ref else 0.5,
+        pad_factor=3.0,
         admin_boundaries_relpath=admin_boundaries_ref,
     )
 
@@ -444,6 +588,9 @@ def render_canonical_html(report: CanonicalReport, output_path: Path) -> None:
         (layer for layer in switcher_layers if layer.get("available") and layer.get("path")),
         switcher_layers[0] if switcher_layers else None,
     )
+    # Computed from the un-overridden `layers` (below) so the hero's CSS background - which can
+    # only ever be a real image - keeps using the static 01_aoi_satellite.png even after the
+    # "satellite" switcher tab is repointed at the interactive map just below.
     hero_layer = _first_available_layer(layers, ["satellite", "intersection", "forest_loss", "jrc_forest_2020"])
     hero_style = (
         f' style="--hero-image:url(\'{_esc_attr(hero_layer["path"])}\')"'
@@ -451,10 +598,18 @@ def render_canonical_html(report: CanonicalReport, output_path: Path) -> None:
         else ""
     )
 
+    # Round 7 (geospatial-evidence-framework, coffee_brazil_minas_gerais_eudr_compliant bundle):
+    # the "satellite" layer/tab used to be swapped for the interactive Leaflet map here (an
+    # .html artifact, see `_write_esri_leaflet_aoi_map_html`) so the "Area Of Interest" viewer
+    # opened it directly. That made the panel's static-image use case (a plain, always-loads
+    # snapshot) redundant with the interactive map, which remains one click away via the "Image
+    # Downloads" list below. Reverted: the "satellite" tab/viewer is the real static PNG again,
+    # exactly like every other switcher tab.
+
     layer_buttons = _render_layer_buttons(switcher_layers, initial_layer, output_path)
     main_viewer = _render_main_viewer(initial_layer, output_path)
     layer_info = _render_layer_info(initial_layer, output_path)
-    downloads = _render_layer_downloads(switcher_layers, output_path)
+    downloads = _render_layer_downloads(layers, output_path)
 
     data_json_raw = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     data_json = html.escape(data_json_raw)
@@ -593,7 +748,7 @@ def render_canonical_html(report: CanonicalReport, output_path: Path) -> None:
     .notice {{ margin-top: 16px; padding: 16px 18px; border-radius: var(--radius); background: #fff8dc; color: #55430a; font-size: 13px; }}
     .two-col {{ display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(300px, .8fr); gap: 28px; align-items: start; }}
     .three-col {{ display: grid; grid-template-columns: 1.05fr .82fr .9fr; gap: 28px; align-items: start; }}
-    .viewer {{ overflow: hidden; min-height: 490px; background: #121916; }}
+    .viewer {{ overflow: hidden; height: 490px; min-height: 490px; background: #121916; }}
     .viewer img {{ width: 100%; min-height: 490px; height: 100%; object-fit: contain; display: block; background: #121916; }}
     .empty-viewer {{ min-height: 490px; display: grid; place-items: center; padding: 28px; color: #fff; text-align: center; }}
     .legend {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; margin-top: 12px; color: var(--muted); font-size: 12px; }}
@@ -601,7 +756,7 @@ def render_canonical_html(report: CanonicalReport, output_path: Path) -> None:
     .swatch {{ width: 18px; height: 8px; border-radius: 2px; display: inline-block; }}
     .forest {{ background: #217a48; }}
     .loss {{ background: #c62828; }}
-    .commodity-swatch {{ background: #8b5a2b; }}
+    .commodity-swatch {{ background: #1e88e5; }}
     .intersection-swatch {{ background: #662d91; }}
     .detail-list {{ border-top: 1px solid var(--line); }}
     .detail {{ display: grid; grid-template-columns: 142px minmax(0, 1fr); gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); font-size: 13px; }}
@@ -643,9 +798,9 @@ def render_canonical_html(report: CanonicalReport, output_path: Path) -> None:
     .method-index {{ display: grid; place-items: center; width: 42px; height: 42px; border-radius: 8px; background: #eef7e9; color: #397b38; font-weight: 850; }}
     .method-step strong {{ display: block; }}
     .method-step span {{ color: var(--muted); font-size: 12px; }}
-    .comparison {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }}
+    .comparison {{ display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }}
     .comparison figure {{ margin: 0; }}
-    .comparison img {{ width: 100%; aspect-ratio: 16 / 9; object-fit: contain; border: 1px solid var(--line); border-radius: var(--radius); background: #121916; display: block; }}
+    .comparison img {{ width: 100%; height: auto; border: 1px solid var(--line); border-radius: var(--radius); background: #121916; display: block; }}
     .comparison figcaption {{ margin-top: 8px; color: var(--muted); font-size: 12px; }}
     .quality {{ border-top: 1px solid var(--line); }}
     .quality-row {{ display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 18px; padding: 13px 0; border-bottom: 1px solid var(--line); font-size: 13px; }}
@@ -676,7 +831,7 @@ def render_canonical_html(report: CanonicalReport, output_path: Path) -> None:
       main {{ padding: 34px 15px 56px; }}
       .metrics {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .detail, .quality-row {{ grid-template-columns: 1fr; gap: 4px; }}
-      .viewer, .viewer img, .empty-viewer {{ min-height: 340px; }}
+      .viewer, .viewer img, .empty-viewer {{ height: 340px; min-height: 340px; }}
       .comparison, .artifact-links {{ grid-template-columns: 1fr; }}
       .evidence-row {{ grid-template-columns: 1fr; }}
       .evidence-value {{ white-space: normal; }}
@@ -876,10 +1031,17 @@ def render_canonical_html(report: CanonicalReport, output_path: Path) -> None:
       const downloads = document.getElementById("layer-downloads");
       const exists = new Map(buttons.map((button) => [button.dataset.layer, button.dataset.pathStatus]));
       const escapeHTML = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({{"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;","'":"&#39;"}}[char]));
+      const isHtmlPath = (path) => String(path || "").toLowerCase().endsWith(".html");
       function layerDownloadRows() {{
         const rows = buttons
           .filter((button) => !button.disabled && button.dataset.path)
-          .map((button) => `<a href="${{escapeHTML(button.dataset.path)}}" download>${{escapeHTML(button.textContent.trim())}}</a>`);
+          .map((button) => {{
+            const path = button.dataset.path;
+            const label = escapeHTML(button.textContent.trim());
+            return isHtmlPath(path)
+              ? `<a href="${{escapeHTML(path)}}" target="_blank" rel="noopener">${{label}} (interactive map)</a>`
+              : `<a href="${{escapeHTML(path)}}" download>${{label}}</a>`;
+          }});
         return rows.length ? `<div class="download-list">${{rows.join("")}}</div>` : `<div class="gap">No downloadable layer images are available.</div>`;
       }}
       function selectLayer(key) {{
@@ -888,7 +1050,9 @@ def render_canonical_html(report: CanonicalReport, output_path: Path) -> None:
         buttons.forEach((button) => button.setAttribute("aria-selected", String(button.dataset.layer === key)));
         const pathStatus = exists.get(key);
         if (layer.available && layer.path && pathStatus !== "missing") {{
-          panel.innerHTML = `<img src="${{escapeHTML(layer.path)}}" alt="${{escapeHTML(layer.title)}} evidence layer">`;
+          panel.innerHTML = isHtmlPath(layer.path)
+            ? `<iframe src="${{escapeHTML(layer.path)}}" title="${{escapeHTML(layer.title)}} interactive map" loading="lazy" style="width:100%;height:100%;border:0;"></iframe>`
+            : `<img src="${{escapeHTML(layer.path)}}" alt="${{escapeHTML(layer.title)}} evidence layer">`;
         }} else {{
           const reason = pathStatus === "missing" ? "Declared artifact path was not found in the generated bundle." : (layer.availability_status || "Layer unavailable.");
           panel.innerHTML = `<div class="empty-viewer">${{escapeHTML(reason)}}</div>`;
@@ -1050,11 +1214,21 @@ def _render_layer_buttons(
     return "".join(rows) or '<p class="gap">No report layers were declared.</p>'
 
 
+def _is_html_layer_path(path: Any) -> bool:
+    return str(path or "").lower().endswith(".html")
+
+
 def _render_main_viewer(layer: Mapping[str, Any] | None, output_path: Path) -> str:
     if not isinstance(layer, Mapping):
         return '<div class="empty-viewer">No evidence layer is available.</div>'
     status = _layer_path_status(layer, output_path)
     if layer.get("available") and layer.get("path") and status != "missing":
+        if _is_html_layer_path(layer["path"]):
+            return (
+                f'<iframe src="{_esc_attr(layer["path"])}" '
+                f'title="{_esc_attr(layer.get("title") or "Evidence layer")} interactive map" '
+                'loading="lazy" style="width:100%;height:100%;border:0;"></iframe>'
+            )
         return (
             f'<img src="{_esc_attr(layer["path"])}" '
             f'alt="{_esc_attr(layer.get("title") or "Evidence layer")} evidence layer">'
@@ -1087,19 +1261,23 @@ def _render_layer_info(layer: Mapping[str, Any] | None, output_path: Path) -> st
     )
 
 
-def _render_layer_downloads(layers: list[Mapping[str, Any]], output_path: Path) -> str:
-    links = []
-    for layer in layers:
-        if not layer.get("available") or not layer.get("path"):
-            continue
-        if _layer_path_status(layer, output_path) == "missing":
-            continue
-        links.append(
-            f'<a href="{_esc_attr(layer["path"])}" download>{html.escape(str(layer.get("title") or layer["path"]))}</a>'
-        )
-    if not links:
-        return '<div class="gap">No downloadable layer images are available.</div>'
-    return f'<div class="download-list">{"".join(links)}</div>'
+def _render_layer_downloads(layers: Mapping[str, Any], output_path: Path) -> str:
+    # Round 7: a single combined interactive map (AOI boundary + JRC 2020 / forest loss /
+    # commodity / intersection as toggle-able overlays, see `_write_esri_leaflet_aoi_map_html`)
+    # replaces what used to be one download link per static evidence-layer PNG - the same PNGs
+    # remain viewable in-page via the Layer Switcher tabs above, so nothing is actually lost, only
+    # de-duplicated.
+    interactive = layers.get("satellite_interactive_map") if isinstance(layers, Mapping) else None
+    if (
+        isinstance(interactive, Mapping)
+        and interactive.get("available")
+        and interactive.get("path")
+        and _layer_path_status(interactive, output_path) != "missing"
+    ):
+        title = html.escape(str(interactive.get("title") or "Evidence layers"))
+        link = f'<a href="{_esc_attr(interactive["path"])}" target="_blank" rel="noopener">{title}</a>'
+        return f'<div class="download-list">{link}</div>'
+    return '<div class="gap">No downloadable layer images are available.</div>'
 
 
 def _render_satellite_evidence(layers: Mapping[str, Any], output_path: Path) -> str:
@@ -1272,10 +1450,12 @@ def _render_gap_rows(gaps: list[Any]) -> str:
     for gap in gaps:
         if not isinstance(gap, Mapping):
             continue
+        label = gap.get("artifact_id") or gap.get("gap_id") or gap.get("code") or "gap"
+        detail = gap.get("status") or gap.get("reason") or gap.get("description") or gap.get("message") or ""
         rows.append(
             "<tr>"
-            f"<th>{html.escape(str(gap.get('artifact_id') or gap.get('gap_id') or 'gap'))}</th>"
-            f"<td>{html.escape(str(gap.get('status') or gap.get('reason') or gap.get('description') or ''))}</td>"
+            f"<th>{html.escape(str(label))}</th>"
+            f"<td>{html.escape(str(detail))}</td>"
             f"<td>{html.escape(str(gap.get('path') or ''))}</td>"
             "</tr>"
         )
@@ -1962,7 +2142,7 @@ def render_canonical_pdf(report: CanonicalReport, output_path: Path, *, report_r
         commodity_overlay_available
         and metric_value("post_2020_loss_and_commodity_overlap_ha") is not None
     )
-    commodity_swatch = colors.HexColor("#8b5a2b")
+    commodity_swatch = colors.HexColor("#1e88e5")
     commodity_loss_swatch = colors.HexColor("#662d91")
     commodity_label = f"{commodity_name} plantations ({_display_value(commodity.get('observation_year'))})"
 
@@ -1988,16 +2168,78 @@ def render_canonical_pdf(report: CanonicalReport, output_path: Path, *, report_r
 
     new_page(6, "Forest Loss After 2020")
     y = content_top
-    y = draw_wrapped(f"Tree-cover loss evidence detected by Hansen Global Forest Change during {evidence_period}.", margin, y, content_w, size=9, leading=12)
+    # Round 26: `forest_loss` (see materialize_evidence_pngs) is now a stacked composite - current
+    # forest (JRC 2020 baseline minus any detected loss), the commodity overlay, the raw loss
+    # mask, and the loss-and-commodity intersection, in that draw order - so it renders whenever
+    # this AOI has a computed forest baseline and/or commodity layer, not only when loss is
+    # nonzero. The plain satellite-only fallback below (round 25) is now the true last resort: it
+    # only triggers when none of those four layers has any geometry at all for this AOI.
+    loss_image = image_path("forest_loss")
+    satellite_image = image_path("satellite_evidence_map")
+    page6_image = loss_image or satellite_image
+    using_satellite_fallback = loss_image is None and satellite_image is not None
+    forest_loss_layer = layers.get("forest_loss")
+    forest_loss_status = (
+        forest_loss_layer.get("availability_status") if isinstance(forest_loss_layer, Mapping) else None
+    )
+    # The composite's "current forest" layer is derived from the same baseline mask page 5's
+    # `jrc_forest_2020` layer reports on, so that layer's own availability flag is reused here
+    # rather than re-deriving a third copy of the same fact - this only diverges from what the
+    # image actually contains in the edge case of measured loss consuming the entire baseline
+    # forest polygon (a scenario already flagged for human review via `needs_review`/`loss_positive`
+    # regardless of this legend row).
+    forest_context_shown = bool(
+        loss_image is not None
+        and isinstance(layers.get("jrc_forest_2020"), Mapping)
+        and layers["jrc_forest_2020"].get("available")
+    )
+    commodity_suffix = f" and {commodity_name.lower()} plantation" if commodity_overlay_available else ""
+    if loss_image is not None and loss_positive:
+        intro_text = (
+            f"Tree-cover loss evidence detected by Hansen Global Forest Change during "
+            f"{evidence_period}, shown together with current forest{commodity_suffix} extent for "
+            f"context."
+        )
+    elif loss_image is not None:
+        intro_text = (
+            f"No post-2020 tree-cover loss was detected by Hansen Global Forest Change during "
+            f"{evidence_period}; current forest{commodity_suffix} extent shown for AOI context."
+        )
+    elif using_satellite_fallback and forest_loss_status == "source_mask_contains_no_renderable_features":
+        intro_text = (
+            f"No post-2020 tree-cover loss was detected by Hansen Global Forest Change during "
+            f"{evidence_period}; satellite basemap shown for AOI context."
+        )
+    elif using_satellite_fallback:
+        intro_text = (
+            f"Post-2020 tree-cover loss evidence from Hansen Global Forest Change is unavailable "
+            f"for this AOI during {evidence_period}; satellite basemap shown for AOI context."
+        )
+    else:
+        intro_text = f"Tree-cover loss evidence detected by Hansen Global Forest Change during {evidence_period}."
+    y = draw_wrapped(intro_text, margin, y, content_w, size=9, leading=12)
     # See the matching comment on page 5 above: fill=False is intentional here now. When the
     # post-2020-loss-and-commodity intersection is available, this image also carries a stronger
     # overlay of that intersection (see materialize_evidence_pngs) so loss detected inside the
     # commodity layer visually stands out from loss elsewhere in the AOI.
-    draw_image_fit(image_path("forest_loss"), margin, y - 18, content_w, 520, gap="Post-2020 forest-loss image is unavailable.")
-    page6_legend_items = [
-        (colors.HexColor("#c62828"), f"Loss ({evidence_period})"),
-        (colors.HexColor("#217a48"), "Forest (JRC 2020 baseline)"),
-    ]
+    img_top = y - 18
+    draw_image_fit(page6_image, margin, img_top, content_w, 520, gap="Post-2020 forest-loss image is unavailable.")
+    if using_satellite_fallback:
+        draw_photo_chip(margin + 10, img_top - 10, "SATELLITE BASEMAP - NO LOSS OVERLAY", align="left")
+    elif loss_image is not None and not loss_positive:
+        draw_photo_chip(margin + 10, img_top - 10, "NO LOSS DETECTED - FOREST/COMMODITY CONTEXT SHOWN", align="left")
+    if using_satellite_fallback:
+        page6_legend_items = [(aoi_boundary, "AOI boundary")]
+    else:
+        page6_legend_items = []
+        if loss_positive:
+            page6_legend_items.append((colors.HexColor("#c62828"), f"Loss ({evidence_period})"))
+        if forest_context_shown:
+            page6_legend_items.append(
+                (colors.HexColor("#217a48"), "Forest (JRC 2020 baseline)")
+            )
+        if commodity_overlay_available:
+            page6_legend_items.append((commodity_swatch, commodity_label))
     primary_metric = (
         "Forest loss after 2020",
         metric("forest_loss_post_2020_on_baseline_ha"),
@@ -2005,9 +2247,14 @@ def render_canonical_pdf(report: CanonicalReport, output_path: Path, *, report_r
         warning if loss_positive else forest,
     )
     if commodity_loss_metric_available:
-        page6_legend_items.append(
-            (commodity_loss_swatch, f"Loss within {commodity_name.lower()} plantations")
-        )
+        # Round 26: this legend row is now only added when loss is actually positive - the
+        # underlying metric (and its explicit "0 ha" secondary value on the card below) is still
+        # shown regardless, since a numeric zero is a disclosure, not a claim that a purple swatch
+        # appears somewhere on the map with nothing actually drawn under it.
+        if loss_positive:
+            page6_legend_items.append(
+                (commodity_loss_swatch, f"Loss within {commodity_name.lower()} plantations")
+            )
         # Intersection of JRC 2020 forest, Hansen post-2020 loss, and the configured commodity
         # (coffee) layer: the area of forest lost during evidence_period that falls inside the
         # commodity/coffee-plantation mask - the headline "forest loss at the coffee plantations"
@@ -2215,8 +2462,12 @@ def render_canonical_pdf(report: CanonicalReport, output_path: Path, *, report_r
     gaps = payload.get("evidence_gaps") or []
     if gaps:
         for gap in gaps[:7]:
-            label = gap.get("gap_id") or gap.get("artifact_id") or "gap" if isinstance(gap, Mapping) else "gap"
-            status = gap.get("status") or gap.get("reason") or gap.get("description") if isinstance(gap, Mapping) else str(gap)
+            if isinstance(gap, Mapping):
+                label = gap.get("gap_id") or gap.get("artifact_id") or gap.get("code") or "gap"
+                status = gap.get("status") or gap.get("reason") or gap.get("description") or gap.get("message") or ""
+            else:
+                label = "gap"
+                status = str(gap)
             y = draw_wrapped(f"{label}: {status}", margin, y, content_w, size=8.2, leading=11, max_lines=2)
             y -= 4
     else:
@@ -2426,11 +2677,13 @@ def _commodity(report: Mapping[str, Any], metrics: Mapping[str, Any]) -> dict[st
         commodity = {}
     if not isinstance(commodity_params, Mapping):
         commodity_params = {}
-    return {
+    mode = commodity.get("mode") or commodity_params.get("mode") or "discrete_classes"
+    result = {
         "id": commodity.get("id") or commodity_params.get("id"),
         "display_name": commodity.get("display_name") or commodity_params.get("display_name"),
         "evidence_available": bool(commodity.get("evidence_available", False)),
         "provider": commodity.get("provider") or commodity_params.get("provider"),
+        "mode": mode,
         "dataset": (
             commodity.get("dataset")
             or commodity.get("dataset_title")
@@ -2452,6 +2705,23 @@ def _commodity(report: Mapping[str, Any], metrics: Mapping[str, Any]) -> dict[st
             ]["value"],
         },
     }
+    if mode == "probability_threshold":
+        extensions = report.get("extensions", {})
+        commodity_extension = (
+            extensions.get("commodity_assessment", {}) if isinstance(extensions, Mapping) else {}
+        )
+        provenance = (
+            commodity_extension.get("provenance", {})
+            if isinstance(commodity_extension, Mapping)
+            else {}
+        )
+        result["probability_band"] = commodity_params.get("probability_band")
+        result["threshold"] = commodity_params.get("threshold")
+        result["sensitivity_thresholds"] = commodity_params.get("sensitivity_thresholds") or []
+        result["probability_profile"] = (
+            provenance.get("probability_profile") if isinstance(provenance, Mapping) else None
+        )
+    return result
 
 
 def _assessment(*, metrics: Mapping[str, Any], evidence_gaps: list[dict[str, Any]]) -> dict[str, Any]:
@@ -2464,6 +2734,19 @@ def _assessment(*, metrics: Mapping[str, Any], evidence_gaps: list[dict[str, Any
         if human_review
         else "No post-2020 forest loss on the JRC 2020 baseline was detected by the configured evidence."
     )
+    hansen_overlap_entry = metrics.get(
+        "forest_loss_post_2020_and_commodity_overlap_hansen10pct_baseline_ha"
+    )
+    hansen_overlap = hansen_overlap_entry["value"] if isinstance(hansen_overlap_entry, Mapping) else None
+    if isinstance(hansen_overlap, (int, float)) and hansen_overlap > 0:
+        human_review = True
+        status = "human_review_required"
+        summary += (
+            f" Under a broader tree-canopy (>=10%) forest baseline (the FAO/EUDR Art.2 forest "
+            f"definition), {hansen_overlap:,.2f} ha of post-2020 forest loss overlaps the "
+            "configured commodity layer, even though the stricter JRC closed-canopy baseline "
+            "shows no such overlap; both baselines are reported, not reconciled into one figure."
+        )
     return {
         "status": status,
         "human_review_required": human_review,
@@ -2486,7 +2769,11 @@ def _collect_evidence_gaps(report: Mapping[str, Any]) -> list[dict[str, Any]]:
     gaps: list[dict[str, Any]] = []
     extensions = report.get("extensions", {})
     if isinstance(extensions, Mapping):
-        for key in ["post_2020_loss_on_2020_forest", "commodity_assessment"]:
+        for key in [
+            "post_2020_loss_on_2020_forest",
+            "commodity_assessment",
+            "hansen_canopy_post2020_loss",
+        ]:
             block = extensions.get(key)
             if isinstance(block, Mapping):
                 for gap in block.get("evidence_gaps") or []:
@@ -2538,7 +2825,6 @@ def _layers(
     recent_date = satellite_outputs.get("recent_date")
     if baseline_date or recent_date:
         before_after_date = f"{baseline_date or '?'} vs {recent_date or '?'}"
-    regional_date = str(satellite_outputs.get("regional_date") or "") or satellite_date
     return {
         "satellite": _layer(
             "satellite",
@@ -2549,23 +2835,45 @@ def _layers(
             "Visual AOI context from source imagery",
             satellite_date,
         ),
+        "satellite_evidence_map": _layer(
+            "satellite_evidence_map",
+            "AOI satellite context (evidence-map aspect)",
+            artifacts.get("satellite_evidence_map") or _missing("satellite_evidence_map_not_materialized"),
+            satellite_dataset,
+            satellite_version,
+            "Plain satellite basemap, sized to the evidence-map page box, used on pages 5/6 when no "
+            "forest/loss mask is renderable",
+            satellite_date,
+        ),
         "cover_hero": _layer(
             "cover_hero",
             "Cover hero context",
             artifacts.get("cover_hero") or _missing("cover_hero_not_materialized"),
-            satellite_dataset,
-            satellite_version,
+            ESRI_WORLDIMAGERY_DATASET_TITLE,
+            ESRI_WORLDIMAGERY_DATASET_VERSION,
             "Full-bleed AOI satellite context for the report cover page",
-            satellite_date,
+            None,
         ),
         "regional_overview": _layer(
             "regional_overview",
             "Regional overview",
             artifacts.get("regional_overview") or _missing("regional_overview_not_materialized"),
-            satellite_dataset,
-            satellite_version,
+            ESRI_WORLDIMAGERY_DATASET_TITLE,
+            ESRI_WORLDIMAGERY_DATASET_VERSION,
             "Wider-context satellite view showing the AOI within its surrounding region",
-            regional_date,
+            None,
+        ),
+        "satellite_interactive_map": _layer(
+            "satellite_interactive_map",
+            "Evidence layers (interactive map)",
+            artifacts.get("aoi_satellite_map") or _missing("aoi_satellite_map_not_materialized"),
+            ESRI_WORLDIMAGERY_DATASET_TITLE,
+            ESRI_WORLDIMAGERY_DATASET_VERSION,
+            "Interactive Leaflet map of this AOI's boundary over an Esri World Imagery satellite "
+            "mosaic, with the JRC 2020 baseline, forest loss, commodity, and intersection masks "
+            "as independently toggle-able overlay layers; report.html's Image Downloads list "
+            "links to this single file in place of separate per-layer PNG downloads",
+            None,
         ),
         "jrc_forest_2020": _layer(
             "jrc_forest_2020",
@@ -2582,7 +2890,8 @@ def _layers(
             artifacts["forest_loss"],
             "hansen_lossyear",
             str(temporal_scope["effective_end_year"]),
-            "Post-2020 loss evidence intersected with baseline forest",
+            "Post-2020 loss evidence intersected with baseline forest, alongside current forest "
+            "and commodity extent for AOI context",
             str(temporal_scope["effective_end_year"]),
         ),
         "commodity": _layer(
@@ -3242,6 +3551,235 @@ def _write_regional_overview_png(
     return _available(output_path, output_path.parents[1])
 
 
+def _fetch_esri_worldimagery_export_png(
+    *,
+    bbox_wgs84: tuple[float, float, float, float],
+    width: int,
+    height: int,
+    timeout: float = 20.0,
+) -> bytes:
+    """Fetch a single, already-mosaicked satellite PNG for ``bbox_wgs84`` from the Esri World
+    Imagery export REST service, sized exactly to ``width``x``height`` pixels - no client-side
+    tile-stitching required (unlike the raw XYZ tile endpoint), since the export service accepts
+    an arbitrary bbox and output size directly."""
+    import urllib.parse
+    import urllib.request
+
+    min_lon, min_lat, max_lon, max_lat = bbox_wgs84
+    params = {
+        "bbox": f"{min_lon},{min_lat},{max_lon},{max_lat}",
+        "bboxSR": "4326",
+        "imageSR": "4326",
+        "size": f"{width},{height}",
+        "format": "png32",
+        "f": "image",
+    }
+    url = ESRI_WORLDIMAGERY_EXPORT_URL + "?" + urllib.parse.urlencode(params)
+    request = urllib.request.Request(url, headers={"User-Agent": "eudr-dmi-gil-report/1.0"})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return response.read()
+
+
+def _reproject_esri_worldimagery_to_grid(
+    aoi_geom_wgs84: Any,
+    *,
+    pad_factor: float = 0.12,
+    width: int = 640,
+    height: int = 420,
+) -> tuple[Any, Any, Any]:
+    """Fetch an Esri World Imagery crop framed around ``aoi_geom_wgs84`` onto a fixed-size RGBA
+    grid, mirroring ``_reproject_raster_to_grid``'s ``(rgba, dst_crs, dst_transform)`` contract so
+    the same ``_draw_aoi_outline_inplace``/``_draw_admin_boundaries_inplace`` overlay helpers work
+    unchanged regardless of whether the basemap came from a local raster or this live service.
+
+    Padding and aspect-fit are computed in Web Mercator (EPSG:3857, the CRS Esri's own tiles are
+    served in), not raw WGS84 degrees, so the AOI's true on-the-ground aspect ratio is preserved
+    at any latitude rather than being skewed by degree-per-km distortion.
+    """
+    import numpy as np
+    from PIL import Image
+    from rasterio.crs import CRS
+    from rasterio.transform import from_bounds
+    from rasterio.warp import transform_bounds
+
+    minx, miny, maxx, maxy = aoi_geom_wgs84.bounds
+    pad_x = (maxx - minx) * pad_factor or 0.001
+    pad_y = (maxy - miny) * pad_factor or 0.001
+    minx, maxx = minx - pad_x, maxx + pad_x
+    miny, maxy = miny - pad_y, maxy + pad_y
+
+    dst_crs = CRS.from_epsg(3857)
+    left, bottom, right, top = transform_bounds("EPSG:4326", dst_crs, minx, miny, maxx, maxy)
+    target_aspect = width / height
+    frame_w, frame_h = right - left, top - bottom
+    frame_aspect = (frame_w / frame_h) if frame_h else target_aspect
+    if frame_aspect < target_aspect:
+        new_w = frame_h * target_aspect
+        cx = (left + right) / 2
+        left, right = cx - new_w / 2, cx + new_w / 2
+    elif frame_aspect > target_aspect:
+        new_h = frame_w / target_aspect
+        cy = (bottom + top) / 2
+        bottom, top = cy - new_h / 2, cy + new_h / 2
+
+    request_bbox = transform_bounds(dst_crs, "EPSG:4326", left, bottom, right, top)
+    image_bytes = _fetch_esri_worldimagery_export_png(bbox_wgs84=request_bbox, width=width, height=height)
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+    if img.size != (width, height):
+        img = img.resize((width, height), Image.Resampling.LANCZOS)
+    rgba = np.array(img)
+    dst_transform = from_bounds(left, bottom, right, top, width, height)
+    return rgba, dst_crs, dst_transform
+
+
+def _write_esri_satellite_context_png(
+    *,
+    aoi_geom_wgs84: Any | None,
+    output_path: Path,
+    width: int = 640,
+    height: int = 420,
+    pad_factor: float = 0.12,
+) -> ArtifactRef:
+    if aoi_geom_wgs84 is None:
+        return _missing("aoi_geometry_not_available_for_esri_satellite_context")
+    try:
+        rgba, dst_crs, dst_transform = _reproject_esri_worldimagery_to_grid(
+            aoi_geom_wgs84, pad_factor=pad_factor, width=width, height=height
+        )
+        _draw_aoi_outline_inplace(rgba, aoi_geom_wgs84, dst_crs, dst_transform)
+    except Exception:
+        return _missing("esri_satellite_imagery_could_not_be_fetched_or_rendered")
+    _write_png_rgba(output_path, rgba)
+    return _available(output_path, output_path.parents[1])
+
+
+def _write_regional_overview_png_esri(
+    *,
+    bundle_root: Path,
+    aoi_geom_wgs84: Any | None,
+    output_path: Path,
+    pad_factor: float = 3.0,
+    admin_boundaries_relpath: str | None = None,
+) -> ArtifactRef:
+    if aoi_geom_wgs84 is None:
+        return _missing("aoi_geometry_not_available_for_esri_regional_overview")
+    try:
+        rgba, dst_crs, dst_transform = _reproject_esri_worldimagery_to_grid(
+            aoi_geom_wgs84, pad_factor=pad_factor, width=900, height=620
+        )
+        if admin_boundaries_relpath:
+            boundaries_path = bundle_root / admin_boundaries_relpath
+            if boundaries_path.is_file():
+                try:
+                    _draw_admin_boundaries_inplace(rgba, boundaries_path, dst_crs, dst_transform)
+                except Exception:
+                    pass  # optional regional-context layer; never blocks the base evidence image
+        _draw_aoi_outline_inplace(rgba, aoi_geom_wgs84, dst_crs, dst_transform, min_stroke_px=2.0)
+    except Exception:
+        return _missing("esri_regional_overview_could_not_be_fetched_or_rendered")
+    _write_png_rgba(output_path, rgba)
+    return _available(output_path, output_path.parents[1])
+
+
+def _write_esri_leaflet_aoi_map_html(
+    *,
+    aoi_geom_wgs84: Any | None,
+    aoi_name: str,
+    output_path: Path,
+    overlay_layers: list[tuple[str, Path | Any | None, tuple[int, int, int]]] | None = None,
+) -> ArtifactRef:
+    """Render a standalone interactive Leaflet map: this AOI's own boundary (only - no
+    sibling-bundle AOI) over an Esri World Imagery tile basemap, plus zero or more optional,
+    independently toggle-able overlay layers (round 7: JRC 2020 baseline / forest loss /
+    commodity / intersection masks, so this one file replaces separate per-layer PNG downloads).
+    Each ``overlay_layers`` entry is ``(label, geojson-path-or-shapely-geometry-or-None, rgb)`` -
+    entries with no geometry (unavailable/empty for this AOI) are silently skipped, never
+    rendered as an empty/broken layer. Uses the Leaflet CDN build (leaflet.js/leaflet.css from
+    unpkg), the same approach as the framework repo's
+    ``tools/render_two_aoi_geemap_satellite_tiles.py`` reference script - viewing this file later
+    requires network access to that CDN, an explicit, documented limitation, not a hidden one."""
+    from shapely.geometry import mapping as shapely_mapping
+
+    if aoi_geom_wgs84 is None:
+        return _missing("aoi_geometry_not_available_for_interactive_map")
+    minx, miny, maxx, maxy = aoi_geom_wgs84.bounds
+    center_lat, center_lon = (miny + maxy) / 2, (minx + maxx) / 2
+    aoi_feature_collection = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"name": aoi_name},
+                "geometry": shapely_mapping(aoi_geom_wgs84),
+            }
+        ],
+    }
+
+    overlay_js_blocks = []
+    overlay_map_entries = []
+    for index, (label, source, rgb) in enumerate(overlay_layers or []):
+        geom = _load_layer_geometry(source)
+        if geom is None:
+            continue
+        feature_collection = {
+            "type": "FeatureCollection",
+            "features": [{"type": "Feature", "properties": {}, "geometry": shapely_mapping(geom)}],
+        }
+        css_color = f"rgb({rgb[0]}, {rgb[1]}, {rgb[2]})"
+        var_name = f"overlayLayer{index}"
+        overlay_js_blocks.append(
+            f"const {var_name} = L.geoJSON({json.dumps(feature_collection)}, {{\n"
+            f"  style: {{color: {json.dumps(css_color)}, weight: 1.5, fillColor: {json.dumps(css_color)}, fillOpacity: 0.55}}\n"
+            f"}}).addTo(map);"
+        )
+        overlay_map_entries.append(f"{json.dumps(html.escape(label))}: {var_name}")
+
+    safe_title = html.escape(aoi_name)
+    layer_control_js = (
+        f"L.control.layers(null, {{{', '.join(overlay_map_entries)}}}, {{collapsed: false}}).addTo(map);"
+        if overlay_map_entries
+        else ""
+    )
+    doc = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{safe_title} - satellite AOI map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    html, body, #map {{ height: 100%; margin: 0; background: #101416; }}
+    .title {{
+      position: absolute; z-index: 1000; left: 14px; top: 12px; max-width: 72%;
+      color: #f7fbfb; font: 700 16px Arial, sans-serif;
+      background: rgba(7, 10, 12, 0.82); padding: 8px 12px; border-radius: 8px;
+    }}
+  </style>
+</head>
+<body>
+<div id="map"></div>
+<div class="title">{safe_title} &mdash; Esri World Imagery basemap</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map = L.map('map').setView([{center_lat}, {center_lon}], 13);
+L.tileLayer({json.dumps(ESRI_WORLDIMAGERY_TILE_URL_TEMPLATE)}, {{
+  maxZoom: 19,
+  attribution: {json.dumps(ESRI_WORLDIMAGERY_ATTRIBUTION)}
+}}).addTo(map);
+const aoiLayer = L.geoJSON({json.dumps(aoi_feature_collection)}, {{
+  style: {{color: '#ffcc00', weight: 3, dashArray: '6 5', fillColor: '#ffcc00', fillOpacity: 0.18}}
+}}).addTo(map);
+{chr(10).join(overlay_js_blocks)}
+{layer_control_js}
+map.fitBounds(aoiLayer.getBounds(), {{padding: [24, 24]}});
+</script>
+</body>
+</html>
+"""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(doc, encoding="utf-8")
+    return _available(output_path, output_path.parents[1])
+
+
 def _write_mask_over_basemap_png(
     *,
     geojson_path: Path,
@@ -3358,6 +3896,194 @@ def _write_mask_over_basemap_png(
     _write_png_rgba(output_path, rgba)
 
 
+def _load_layer_geometry(source: Path | Any | None) -> Any | None:
+    """Resolve one layer's geometry, whether given as a GeoJSON path or an already-resolved
+    Shapely geometry (round 26: the page-6 "current forest" layer is computed in-memory as a
+    baseline-minus-loss difference rather than read from its own file, so
+    `_write_layered_mask_over_basemap_png`'s callers need to pass either kind interchangeably).
+    Returns ``None`` for anything empty/missing/unparseable - never raises, since an absent layer
+    is a normal, expected case for every caller of this function, not an error.
+    """
+    from shapely.geometry import shape
+    from shapely.geometry.base import BaseGeometry
+    from shapely.ops import unary_union
+
+    if source is None:
+        return None
+    if isinstance(source, BaseGeometry):
+        return None if source.is_empty else source
+    path = Path(source)
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    features = payload.get("features") if isinstance(payload, Mapping) else None
+    if not isinstance(features, list) or not features:
+        return None
+    geoms = []
+    for feature in features:
+        if not isinstance(feature, Mapping) or not isinstance(feature.get("geometry"), Mapping):
+            continue
+        geom = shape(feature["geometry"])
+        if not geom.is_empty:
+            geoms.append(geom)
+    if not geoms:
+        return None
+    return unary_union(geoms)
+
+
+def _write_layered_mask_over_basemap_png(
+    *,
+    layers: list[tuple[Path | Any | None, tuple[int, int, int], float]],
+    output_path: Path,
+    background_raster_path: Path,
+    aoi_geom_wgs84: Any,
+) -> None:
+    """Composite an ordered stack of evidence-mask layers (each its own color/alpha) over a real
+    satellite basemap crop, with the AOI boundary drawn on top last - round 26's generalization of
+    `_write_mask_over_basemap_png`'s single-mask-plus-one-overlay case to an arbitrary-length
+    stack, so one composite (page 6's "current forest + commodity + loss" evidence map) can show
+    every layer relevant to it without a bespoke function per layer combination. Each ``layers``
+    entry is ``(source, color_rgb, alpha)``; ``source`` may be a GeoJSON path, an in-memory
+    Shapely geometry, or ``None`` - entries that resolve to no geometry (via
+    `_load_layer_geometry`) are silently skipped, not an error, so callers can pass every
+    candidate layer for an AOI regardless of which ones actually have data. Layers are blended in
+    list order, so later entries draw on top of earlier ones. Raises ``ValueError`` only when
+    *every* entry is empty - matching `_png_from_geojson_ref`'s existing
+    ``source_mask_contains_no_renderable_features`` handling for its caller to catch.
+    """
+    import numpy as np
+    from rasterio.features import rasterize
+    from rasterio.warp import transform_geom
+    from shapely.geometry import mapping, shape
+    from shapely.ops import unary_union
+
+    resolved: list[tuple[Any, tuple[int, int, int], float]] = []
+    for source, color, alpha in layers:
+        geom = _load_layer_geometry(source)
+        if geom is not None:
+            resolved.append((geom, color, alpha))
+    if not resolved:
+        raise ValueError("no renderable layers")
+
+    frame_geom = unary_union([aoi_geom_wgs84, *(geom for geom, _, _ in resolved)])
+    width, height = EVIDENCE_MAP_PIXEL_WIDTH, EVIDENCE_MAP_PIXEL_HEIGHT
+    rgba, dst_crs, dst_transform = _reproject_raster_to_grid(
+        background_raster_path, frame_geom, pad_factor=0.12, width=width, height=height
+    )
+
+    for geom, color, alpha in resolved:
+        geom_target = shape(transform_geom("EPSG:4326", dst_crs, mapping(geom)))
+        mask = rasterize(
+            [(mapping(geom_target), 1)],
+            out_shape=(height, width),
+            transform=dst_transform,
+            fill=0,
+            dtype="uint8",
+            all_touched=True,
+        )
+        mask_bool = mask.astype(bool)
+        if not np.count_nonzero(mask_bool):
+            continue
+        color_arr = np.array(color, dtype=np.float64)
+        blended = rgba[mask_bool, :3].astype(np.float64) * (1 - alpha) + color_arr * alpha
+        rgba[mask_bool, :3] = blended.astype(np.uint8)
+        rgba[mask_bool, 3] = 255
+
+    _draw_aoi_outline_inplace(rgba, aoi_geom_wgs84, dst_crs, dst_transform)
+    _write_png_rgba(output_path, rgba)
+
+
+def _write_layered_mask_flat_png(
+    *,
+    layers: list[tuple[Path | Any | None, tuple[int, int, int], float]],
+    output_path: Path,
+) -> None:
+    """`_write_geojson_mask_png`'s multi-layer counterpart, used (like that function) only when no
+    background satellite raster is available to composite onto - flat opaque colors on a plain
+    background instead of a basemap crop, framed around the union of whichever layers actually
+    have geometry. Later entries in ``layers`` paint over earlier ones, same draw order as
+    `_write_layered_mask_over_basemap_png`.
+    """
+    import numpy as np
+    from rasterio.features import rasterize
+    from rasterio.transform import from_bounds
+    from shapely.ops import unary_union
+
+    resolved: list[tuple[Any, tuple[int, int, int]]] = []
+    for source, color, _alpha in layers:
+        geom = _load_layer_geometry(source)
+        if geom is not None:
+            resolved.append((geom, color))
+    if not resolved:
+        raise ValueError("no renderable layers")
+
+    union = unary_union([geom for geom, _ in resolved])
+    minx, miny, maxx, maxy = union.bounds
+    if minx == maxx:
+        minx -= 0.0001
+        maxx += 0.0001
+    if miny == maxy:
+        miny -= 0.0001
+        maxy += 0.0001
+    width, height = 640, 420
+    transform = from_bounds(minx, miny, maxx, maxy, width, height)
+    rgba = np.zeros((height, width, 4), dtype=np.uint8)
+    rgba[:, :, :] = np.array([248, 250, 247, 255], dtype=np.uint8)
+    any_drawn = False
+    for geom, color in resolved:
+        mask = rasterize(
+            [(geom, 1)],
+            out_shape=(height, width),
+            transform=transform,
+            fill=0,
+            dtype="uint8",
+            all_touched=True,
+        )
+        mask_bool = mask.astype(bool)
+        if not np.count_nonzero(mask_bool):
+            continue
+        any_drawn = True
+        rgba[mask_bool] = np.array((*color, 255), dtype=np.uint8)
+    if not any_drawn:
+        raise ValueError("empty rasterized mask")
+    _write_png_rgba(output_path, rgba)
+
+
+def _layered_png_from_geojson_refs(
+    *,
+    layers: list[tuple[Path | Any | None, tuple[int, int, int], float]],
+    output_path: Path,
+    background_raster_path: Path | None,
+    aoi_geom_wgs84: Any | None,
+    unavailable_reason: str,
+) -> ArtifactRef:
+    """`_png_from_geojson_ref`'s multi-layer counterpart: same availability contract (no basemap
+    raster falls back to a flat rendering via `_write_layered_mask_flat_png`; every layer empty
+    resolves to a `_missing` artifact with the same `source_mask_contains_no_renderable_features`
+    reason the single-mask path uses), but for an ordered stack of layers rendered by
+    `_write_layered_mask_over_basemap_png` instead of one mask plus one overlay.
+    """
+    if background_raster_path is not None and aoi_geom_wgs84 is not None:
+        try:
+            _write_layered_mask_over_basemap_png(
+                layers=layers,
+                output_path=output_path,
+                background_raster_path=background_raster_path,
+                aoi_geom_wgs84=aoi_geom_wgs84,
+            )
+            return _available(output_path, output_path.parents[1])
+        except ValueError:
+            return _missing("source_mask_contains_no_renderable_features")
+    try:
+        _write_layered_mask_flat_png(layers=layers, output_path=output_path)
+    except ValueError:
+        return _missing(unavailable_reason)
+    return _available(output_path, output_path.parents[1])
+
+
 def _write_legend_png(output_path: Path) -> None:
     import numpy as np
 
@@ -3368,7 +4094,7 @@ def _write_legend_png(output_path: Path) -> None:
     swatches = [
         (20, 20, (33, 122, 72, 255)),
         (20, 55, (198, 40, 40, 255)),
-        (20, 90, (139, 90, 43, 255)),
+        (20, 90, (30, 136, 229, 255)),
         (220, 20, (102, 45, 145, 255)),
     ]
     for x, y, color in swatches:
